@@ -1,0 +1,223 @@
+using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common.Interfaces;
+using SanalBorsa.Domain.Entities;
+using SanalBorsa.Domain.Enums;
+using SanalBorsa.Infrastructure.ExternalServices.YahooFinance.Models;
+using System.Text.Json;
+
+namespace SanalBorsa.Infrastructure.ExternalServices.YahooFinance;
+
+public class YahooFinanceService : IYahooFinanceService
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<YahooFinanceService> _logger;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public YahooFinanceService(IHttpClientFactory httpClientFactory, ILogger<YahooFinanceService> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<StockPriceHistory>> GetPriceHistoryAsync(
+        string yahooSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var period1 = ToUnixTimestamp(from);
+        var period2 = ToUnixTimestamp(to);
+
+        var url = $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}" +
+                  $"?period1={period1}&period2={period2}&interval=1d&events=div%2Csplits&includeAdjustedClose=true";
+
+        var client = _httpClientFactory.CreateClient("YahooFinance");
+
+        try
+        {
+            var response = await client.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var data = JsonSerializer.Deserialize<YahooChartResponse>(json, JsonOptions);
+
+            var result = data?.Chart?.Result?.FirstOrDefault();
+            if (result?.Timestamp is null || result.Indicators?.Quote is null)
+            {
+                _logger.LogWarning("No price data returned for {Symbol}", yahooSymbol);
+                return [];
+            }
+
+            var quote = result.Indicators.Quote[0];
+            var adjCloseList = result.Indicators.AdjClose?.FirstOrDefault()?.AdjClose;
+            var timestamps = result.Timestamp;
+
+            var records = new List<StockPriceHistory>();
+
+            for (int i = 0; i < timestamps.Count; i++)
+            {
+                var open = quote.Open?.ElementAtOrDefault(i);
+                var high = quote.High?.ElementAtOrDefault(i);
+                var low = quote.Low?.ElementAtOrDefault(i);
+                var close = quote.Close?.ElementAtOrDefault(i);
+                var volume = quote.Volume?.ElementAtOrDefault(i);
+                var adjClose = adjCloseList?.ElementAtOrDefault(i);
+
+                // Skip rows with null OHLCV (can happen for holidays in Yahoo data)
+                if (open is null || high is null || low is null || close is null || volume is null)
+                    continue;
+
+                var date = DateTimeOffset.FromUnixTimeSeconds(timestamps[i]).UtcDateTime.Date;
+
+                records.Add(new StockPriceHistory
+                {
+                    Date = date,
+                    Open = Math.Round(open.Value, 4),
+                    High = Math.Round(high.Value, 4),
+                    Low = Math.Round(low.Value, 4),
+                    Close = Math.Round(close.Value, 4),
+                    AdjustedClose = Math.Round(adjClose ?? close.Value, 4),
+                    Volume = volume.Value,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            return records;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error fetching price history for {Symbol}", yahooSymbol);
+            return [];
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "JSON parse error for price history of {Symbol}", yahooSymbol);
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<CorporateAction>> GetCorporateActionsAsync(
+        string yahooSymbol,
+        CancellationToken ct = default)
+    {
+        // Yahoo Finance returns events (dividends + splits) in the chart endpoint
+        var period1 = 0;
+        var period2 = ToUnixTimestamp(DateTime.UtcNow);
+
+        var url = $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}" +
+                  $"?period1={period1}&period2={period2}&interval=1d&events=div%2Csplits";
+
+        var client = _httpClientFactory.CreateClient("YahooFinance");
+
+        try
+        {
+            var response = await client.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var data = JsonSerializer.Deserialize<YahooChartResponse>(json, JsonOptions);
+
+            var result = data?.Chart?.Result?.FirstOrDefault();
+            if (result is null)
+                return [];
+
+            var actions = new List<CorporateAction>();
+
+            // Map Yahoo dividends → CorporateActionType.Dividend
+            if (result.Events?.Dividends is not null)
+            {
+                foreach (var (_, div) in result.Events.Dividends)
+                {
+                    actions.Add(new CorporateAction
+                    {
+                        ActionType = CorporateActionType.Dividend,
+                        ActionDate = DateTimeOffset.FromUnixTimeSeconds(div.Date).UtcDateTime.Date,
+                        Value = Math.Round(div.Amount, 6),
+                        Description = $"Cash dividend: {div.Amount:F4} TRY per share",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            // Map Yahoo splits → CorporateActionType.BonusIssue
+            // Yahoo reports a "split" when shares are subdivided; BIST bedelsiz = bonus issue
+            if (result.Events?.Splits is not null)
+            {
+                foreach (var (_, split) in result.Events.Splits)
+                {
+                    // Ratio stored as numerator/denominator (e.g. 2:1 split → value = 2.0)
+                    var ratio = split.Denominator != 0
+                        ? Math.Round(split.Numerator / split.Denominator, 6)
+                        : split.Numerator;
+
+                    actions.Add(new CorporateAction
+                    {
+                        ActionType = CorporateActionType.BonusIssue,
+                        ActionDate = DateTimeOffset.FromUnixTimeSeconds(split.Date).UtcDateTime.Date,
+                        Value = ratio,
+                        Description = $"Stock split: {split.SplitRatio ?? $"{split.Numerator}:{split.Denominator}"}",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            return actions;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error fetching corporate actions for {Symbol}", yahooSymbol);
+            return [];
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "JSON parse error for corporate actions of {Symbol}", yahooSymbol);
+            return [];
+        }
+    }
+
+    public async Task<StockMetadata?> GetStockMetadataAsync(string yahooSymbol, CancellationToken ct = default)
+    {
+        // quoteSummary requires crumb auth; chart meta endpoint works with Referer header
+        var url = $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}?interval=1d&range=5d";
+
+        var client = _httpClientFactory.CreateClient("YahooFinance");
+
+        try
+        {
+            var response = await client.GetAsync(url, ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var data = JsonSerializer.Deserialize<YahooChartResponse>(json, JsonOptions);
+
+            var meta = data?.Chart?.Result?.FirstOrDefault()?.Meta;
+            if (meta is null)
+                return null;
+
+            var bist = yahooSymbol.Replace(".IS", "", StringComparison.OrdinalIgnoreCase);
+
+            return new StockMetadata(
+                Symbol: bist,
+                YahooSymbol: yahooSymbol,
+                LongName: meta.LongName ?? meta.ShortName ?? bist,
+                Sector: null,
+                Industry: null,
+                Currency: meta.Currency ?? "TRY",
+                Exchange: meta.ExchangeName ?? "IST"
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching metadata for {Symbol}", yahooSymbol);
+            return null;
+        }
+    }
+
+    private static long ToUnixTimestamp(DateTime dt)
+        => ((DateTimeOffset)DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToUnixTimeSeconds();
+}

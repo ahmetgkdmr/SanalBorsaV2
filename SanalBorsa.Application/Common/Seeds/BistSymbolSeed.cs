@@ -1,0 +1,71 @@
+namespace SanalBorsa.Application.Common.Seeds;
+
+/// <summary>
+/// Comprehensive list of BIST (Borsa Istanbul) stock symbols.
+/// Yahoo Finance uses the ".IS" suffix for all Turkish exchange symbols.
+/// </summary>
+public static class BistSymbolSeed
+{
+    public static IReadOnlyList<string> Symbols { get; } =
+    [
+        "ACSEL", "ADEL", "ADESE", "AEFES", "AFYON", "AGESA", "AGHOL", "AGROT",
+        "AGYO", "AHGAZ", "AKBNK", "AKCNS", "AKFEN", "AKFGY", "AKFYE", "AKGRT",
+        "AKLEASE", "AKSA", "AKSEL", "AKSGY", "AKSUE", "AKYHO", "ALARK", "ALBRK",
+        "ALCAR", "ALCTL", "ALFAS", "ALGYO", "ALKA", "ALKIM", "ALKLC", "ALMAD",
+        "ALTINS", "ALTNY", "ALVES", "ANELE", "ANGEN", "ANHYT", "ANSGR", "ARASE",
+        "ARCLK", "ARDYZ", "ARENA", "ARSAN", "ARTMS", "ARZUM", "ASELS", "ASGYO",
+        "ASUZU", "ATAGY", "ATAKP", "ATATP", "ATEKS", "ATLAS", "AVGYO", "AVHOL",
+        "AVOD", "AVPGY", "AYCES", "AYEN", "AYES", "AYGAZ", "AZTEK", "BAGFS",
+        "BAKAB", "BALAT", "BANVT", "BARMA", "BASGZ", "BAYRK", "BERA", "BEYAZ",
+        "BFREN", "BIMAS", "BIOEN", "BIZIM", "BJKAS", "BMELK", "BMSCH", "BNTAS",
+        "BOSSA", "BRISA", "BRKO", "BRKSN", "BRKVY", "BRSAN", "BRYAT", "BSOKE",
+        "BTCIM", "BUCIM", "BURCE", "BURVA", "BVSAN", "CCOLA", "CELHA", "CEMAS",
+        "CEMTS", "CEOEM", "CIMSA", "CLEBI", "CMENT", "CONSE", "COSMO", "CRDFA",
+        "CRFSA", "CUSAN", "CVKMD", "CWENE", "DAGHL", "DAGI", "DAPGM", "DARDL",
+        "DASTY", "DCTTR", "DENGE", "DERHL", "DESA", "DESPC", "DEVA", "DGATE",
+        "DGGYO", "DGNMO", "DIRIT", "DITAS", "DJIST", "DMSAS", "DNISI", "DOAS",
+        "DOBUR", "DOCO", "DOGUB", "DOHOL", "DOKTA", "DPSAN", "DRGYO", "DTRND",
+        "DURDO", "DYOBY", "DZGYO", "ECILC", "ECZYT", "EDIP", "EFORC", "EGEEN",
+        "EGGUB", "EGPRO", "EGSER", "EKGYO", "EKIZ", "EKOS", "EKSUN", "ELITE",
+        "EMKEL", "EMNIS", "ENDAE", "ENERY", "ENGYO", "ENKAI", "ENSRI", "EPLAS",
+        "ERBOS", "ERCB", "EREGL", "ERGLI", "ESCAR", "ESCOM", "ESEN", "ETILR",
+        "ETYAT", "EUHOL", "EUPWR", "EUREN", "EUYO", "EYGYO", "FADE", "FENER",
+        "FLAP", "FMIZP", "FONET", "FORMT", "FORTE", "FRIGO", "FROTO", "FZLGY",
+        "GARAN", "GARFA", "GEDIK", "GEDZA", "GENIL", "GENTS", "GEREL", "GESAN",
+        "GIPTA", "GLBMD", "GLRYH", "GLYHO", "GMTAS", "GNDUZ", "GOLTS", "GOODY",
+        "GOZDE", "GRSEL", "GRTRK", "GSDDE", "GSDHO", "GSRAY", "GUBRF", "GWIND",
+        "GZNMI", "HALKB", "HATEK", "HDFGS", "HEDEF", "HEKTS", "HKTM", "HLGYO",
+        "HOROZ", "HRKET", "HTTBT", "HUBVC", "HUNER", "HURGZ", "ICBCT", "ICUGS",
+        "IDEAS", "IDGYO", "IEYHO", "IGDAS", "IGLBM", "IHEVA", "IHLGM", "IHYAY",
+        "IMASM", "INDES", "INTEM", "IPEKE", "ISATR", "ISBIR", "ISCTR", "ISFIN",
+        "ISGSY", "ISGYO", "ISKPL", "ISKUR", "ISYAT", "ITTFK", "IZENR", "IZMDC",
+        "JANTS", "KAPLM", "KAREL", "KARSN", "KARTN", "KERVN", "KFEIN", "KGYO",
+        "KLGYO", "KLKIM", "KLMSN", "KLNMA", "KLRHO", "KLSER", "KOCMT", "KONYA",
+        "KORDS", "KOZAA", "KOZAL", "KRDMA", "KRDMB", "KRDMD", "KRGYO", "KRPLAS",
+        "KRSAN", "KSTUR", "KTLEV", "KTSK8", "KUKRC", "KUMUL", "KUNYE", "KUYAS",
+        "KZBGY", "LIDER", "LIDFA", "LILAK", "LINK", "LKMNH", "LOGO", "LRSHO",
+        "LUKSK", "LYDHO", "MAALT", "MACKO", "MAGEN", "MAKIM", "MANAS", "MARKA",
+        "MARTI", "MAVI", "MEDTR", "MEGAP", "MEKAG", "MEPET", "MERCN", "MERIT",
+        "MERKO", "METRO", "METUR", "MGROS", "MHRGY", "MIATK", "MIGRS", "MIPAZ",
+        "MMCAS", "MNDRS", "MNVHO", "MOBTL", "MOGAN", "MPARK", "MRGYO", "MRSHL",
+        "MTRKS", "MTTGG", "MUTUAL", "NATEN", "NETAS", "NNGYO", "NTGAZ", "NUGYO",
+        "NUHCM", "OBAMS", "OBASE", "ODAS", "ODINE", "OFSYM", "ONCSM", "ONRYT",
+        "ORCAY", "ORGE", "ORMA", "OSMEN", "OSTIM", "OTKAR", "OYAKC", "OYLUM",
+        "OZGYO", "OZKGY", "OZRDN", "OZSUB", "PAGYO", "PAMEL", "PAPIL", "PARSN",
+        "PASEU", "PCILT", "PEGYO", "PEKGY", "PENGD", "PENTA", "PETKM", "PETUN",
+        "PGSUS", "PINSU", "PKART", "PKENT", "PLTUR", "POLHO", "POLTK", "PRKAB",
+        "PRKME", "PRZMA", "PSDTC", "QNBFB", "QNBFL", "RALYH", "RAYSG", "REEDR",
+        "RGYAS", "RHGYO", "RNPOL", "RODRG", "RTALB", "RUBNS", "RYGYO", "SAFKR",
+        "SAHOL", "SAMAT", "SANEL", "SANFM", "SANKO", "SARKY", "SASA", "SAYAS",
+        "SDTTR", "SEGMN", "SEGYO", "SEKFK", "SEKUR", "SELEC", "SELGD", "SELVA",
+        "SEYKM", "SILVR", "SISE", "SKBNK", "SMART", "SNGYO", "SNKRN", "SODSN",
+        "SOKE", "SOKM", "SONME", "SORVAY", "SRVGY", "SUWEN", "SZGYO", "TACTR",
+        "TARKM", "TATGD", "TAVHL", "TCELL", "TDGYO", "TEBNK", "TEKTU", "TERA",
+        "TETMT", "THYAO", "TIRE", "TKFEN", "TKNSA", "TLMAN", "TMPOL", "TNZTP",
+        "TOASO", "TOKAK", "TRGYO", "TRILC", "TSGYO", "TSKB", "TSPOR", "TTKOM",
+        "TTRAK", "TUCLK", "TURIA", "TURGG", "TURSG", "UFUK", "ULUFA", "ULUSE",
+        "ULUUN", "UMPAS", "UNLU", "USAK", "USDTR", "VAKBN", "VAKFN", "VAKGY",
+        "VANGD", "VBTYZ", "VERTU", "VESBE", "VESTL", "VKGYO", "VKING", "YATAS",
+        "YESIL", "YGYO", "YIGIT", "YKSLN", "YYLGD", "ZEDUR", "ZOREN", "ZRGYO"
+    ];
+}
