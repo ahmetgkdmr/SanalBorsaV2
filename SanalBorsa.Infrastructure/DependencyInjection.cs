@@ -7,6 +7,7 @@ using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Interfaces;
 using SanalBorsa.Infrastructure.Data;
 using SanalBorsa.Infrastructure.ExternalServices.Bist;
+using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
 using SanalBorsa.Infrastructure.ExternalServices.YahooFinance;
 using SanalBorsa.Infrastructure.Jobs;
 
@@ -48,6 +49,18 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IYahooFinanceService, YahooFinanceService>();
+
+        services.AddHttpClient("IsYatirim", client =>
+        {
+            client.BaseAddress = new Uri("https://www.isyatirim.com.tr/");
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/json,text/plain,*/*");
+            client.Timeout = TimeSpan.FromSeconds(120);
+        });
+
+        services.AddScoped<IIsYatirimPriceService, IsYatirimPriceService>();
 
         services.AddHttpClient("BistSymbols", client =>
         {

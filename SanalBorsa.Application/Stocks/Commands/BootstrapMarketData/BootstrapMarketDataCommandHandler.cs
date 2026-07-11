@@ -10,6 +10,7 @@ public class BootstrapMarketDataCommandHandler : IRequestHandler<BootstrapMarket
 {
     private readonly IUnitOfWork _uow;
     private readonly IYahooFinanceService _yahoo;
+    private readonly IIsYatirimPriceService _isYatirim;
     private readonly IBistSymbolProvider _symbolProvider;
     private readonly ILogger<BootstrapMarketDataCommandHandler> _logger;
 
@@ -18,11 +19,13 @@ public class BootstrapMarketDataCommandHandler : IRequestHandler<BootstrapMarket
     public BootstrapMarketDataCommandHandler(
         IUnitOfWork uow,
         IYahooFinanceService yahoo,
+        IIsYatirimPriceService isYatirim,
         IBistSymbolProvider symbolProvider,
         ILogger<BootstrapMarketDataCommandHandler> logger)
     {
         _uow = uow;
         _yahoo = yahoo;
+        _isYatirim = isYatirim;
         _symbolProvider = symbolProvider;
         _logger = logger;
     }
@@ -132,19 +135,40 @@ public class BootstrapMarketDataCommandHandler : IRequestHandler<BootstrapMarket
                     DateTime.UtcNow,
                     cancellationToken);
 
+                if (allHistory.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "Yahoo returned no data for {Symbol}, trying İş Yatırım",
+                        stock.Symbol);
+
+                    allHistory = await _isYatirim.GetPriceHistoryAsync(
+                        stock.Symbol,
+                        DateTime.UnixEpoch,
+                        DateTime.UtcNow,
+                        cancellationToken);
+                }
+
                 foreach (var record in allHistory)
                     record.StockId = stock.Id;
 
-                await _uow.PriceHistories.BulkInsertAsync(allHistory, cancellationToken);
+                if (allHistory.Count > 0)
+                    await _uow.PriceHistories.BulkInsertAsync(allHistory, cancellationToken);
+
                 priceRecords += allHistory.Count;
 
                 if (allHistory.Count > 0)
                 {
                     stock.EarliestDataDate = allHistory.Min(p => p.Date);
                     stock.LatestDataDate = allHistory.Max(p => p.Date);
+                    stock.NeedsHistoryRefresh = false;
                 }
-
-                stock.NeedsHistoryRefresh = false;
+                else
+                {
+                    stock.NeedsHistoryRefresh = true;
+                    _logger.LogWarning(
+                        "No price data from Yahoo or İş Yatırım for {Symbol} — will retry later",
+                        stock.Symbol);
+                }
                 stock.UpdatedAt = DateTime.UtcNow;
                 _uow.Stocks.Update(stock);
 

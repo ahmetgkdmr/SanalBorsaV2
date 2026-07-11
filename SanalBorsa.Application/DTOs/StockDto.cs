@@ -11,5 +11,10 @@ public record StockDto(
     bool IsActive,
     DateTime? EarliestDataDate,
     DateTime? LatestDataDate,
-    bool NeedsHistoryRefresh
+    bool NeedsHistoryRefresh,
+    decimal? LastClose = null,
+    decimal? LastOpen = null,
+    decimal? PreviousClose = null,
+    long? LastVolume = null,
+    IReadOnlyList<decimal>? Sparkline = null
 );

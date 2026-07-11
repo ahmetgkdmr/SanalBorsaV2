@@ -21,7 +21,7 @@ public class StockRepository : BaseRepository<Stock>, IStockRepository
 
     public async Task<IReadOnlyList<Stock>> GetStocksNeedingRefreshAsync(CancellationToken ct = default)
         => await DbSet
-            .Where(s => s.IsActive && s.NeedsHistoryRefresh)
+            .Where(s => s.IsActive && (s.NeedsHistoryRefresh || s.EarliestDataDate == null))
             .OrderBy(s => s.Symbol)
             .ToListAsync(ct);
 

@@ -7,6 +7,7 @@ using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Application.Stocks.Commands.RefreshStockHistory;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
+using SanalBorsa.Application.Stocks.Queries.CalculateTimeMachine;
 using SanalBorsa.Application.Stocks.Queries.GetAllStocks;
 using SanalBorsa.Application.Stocks.Queries.GetStockDetail;
 
@@ -45,6 +46,25 @@ public class StocksController : ControllerBase
     public async Task<IActionResult> GetBySymbol(string symbol, CancellationToken ct = default)
     {
         var result = await _mediator.Send(new GetStockDetailQuery(symbol), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Simulates an investment from a historical date using real price history and corporate actions.
+    /// </summary>
+    [HttpGet("{symbol}/time-machine")]
+    [ProducesResponseType(typeof(TimeMachineResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CalculateTimeMachine(
+        string symbol,
+        [FromQuery] DateTime date,
+        [FromQuery] decimal pct = 50,
+        [FromQuery] string mode = "lump",
+        CancellationToken ct = default)
+    {
+        var result = await _mediator.Send(
+            new CalculateTimeMachineQuery(symbol, date, pct, mode),
+            ct);
         return Ok(result);
     }
 

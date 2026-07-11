@@ -40,10 +40,32 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
         var page = request.Page < 1 ? 1 : request.Page;
         var pageSize = request.PageSize < 1 ? 50 : Math.Min(request.PageSize, 500);
 
-        var items = ordered
+        var pageItems = ordered
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(_mapper.Map<StockDto>)
+            .ToList();
+
+        var snapshots = await _uow.PriceHistories.GetMarketSnapshotsAsync(
+            pageItems.Select(s => s.Id).ToList(),
+            sparklineDays: 28,
+            cancellationToken);
+
+        var items = pageItems
+            .Select(stock =>
+            {
+                var dto = _mapper.Map<StockDto>(stock);
+                if (!snapshots.TryGetValue(stock.Id, out var snap))
+                    return dto;
+
+                return dto with
+                {
+                    LastClose = snap.LastClose,
+                    LastOpen = snap.LastOpen,
+                    PreviousClose = snap.PreviousClose,
+                    LastVolume = snap.LastVolume,
+                    Sparkline = snap.Sparkline
+                };
+            })
             .ToList();
 
         return new PagedResult<StockDto>(items, total, page, pageSize);

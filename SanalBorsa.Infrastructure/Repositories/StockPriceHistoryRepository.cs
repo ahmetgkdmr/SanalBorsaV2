@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces.Repositories;
+using SanalBorsa.Domain.Models;
 using SanalBorsa.Infrastructure.Data;
 
 namespace SanalBorsa.Infrastructure.Repositories;
@@ -60,5 +61,46 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
             await DbSet.AddRangeAsync(chunk, ct);
             await Context.SaveChangesAsync(ct);
         }
+    }
+
+    public async Task<IReadOnlyDictionary<int, MarketPriceSnapshot>> GetMarketSnapshotsAsync(
+        IReadOnlyList<int> stockIds,
+        int sparklineDays = 28,
+        CancellationToken ct = default)
+    {
+        if (stockIds.Count == 0)
+            return new Dictionary<int, MarketPriceSnapshot>();
+
+        var from = DateTime.UtcNow.Date.AddDays(-(sparklineDays + 5));
+        var records = await DbSet
+            .AsNoTracking()
+            .Where(p => stockIds.Contains(p.StockId) && p.Date >= from)
+            .OrderBy(p => p.StockId)
+            .ThenBy(p => p.Date)
+            .ToListAsync(ct);
+
+        return records
+            .GroupBy(p => p.StockId)
+            .ToDictionary(g => g.Key, g => BuildSnapshot(g.ToList(), sparklineDays));
+    }
+
+    private static MarketPriceSnapshot BuildSnapshot(IReadOnlyList<StockPriceHistory> ordered, int sparklineDays)
+    {
+        if (ordered.Count == 0)
+            return new MarketPriceSnapshot(null, null, null, null, []);
+
+        var latest = ordered[^1];
+        var previous = ordered.Count > 1 ? ordered[^2] : null;
+        var sparkline = ordered
+            .TakeLast(sparklineDays)
+            .Select(p => p.Close)
+            .ToList();
+
+        return new MarketPriceSnapshot(
+            latest.Close,
+            latest.Open,
+            previous?.Close,
+            latest.Volume,
+            sparkline);
     }
 }

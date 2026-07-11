@@ -1,4 +1,5 @@
 using SanalBorsa.Domain.Entities;
+using SanalBorsa.Domain.Models;
 
 namespace SanalBorsa.Domain.Interfaces.Repositories;
 
@@ -19,4 +20,9 @@ public interface IStockPriceHistoryRepository : IRepository<StockPriceHistory>
     Task BulkInsertAsync(IEnumerable<StockPriceHistory> records, CancellationToken ct = default);
 
     Task<bool> AnyAsync(CancellationToken ct = default);
+
+    Task<IReadOnlyDictionary<int, MarketPriceSnapshot>> GetMarketSnapshotsAsync(
+        IReadOnlyList<int> stockIds,
+        int sparklineDays = 28,
+        CancellationToken ct = default);
 }
