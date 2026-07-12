@@ -67,26 +67,34 @@ public class YahooFinanceService : IYahooFinanceService
                 var volume = quote.Volume?.ElementAtOrDefault(i);
                 var adjClose = adjCloseList?.ElementAtOrDefault(i);
 
-                // Skip rows with null OHLCV (can happen for holidays in Yahoo data)
-                if (open is null || high is null || low is null || close is null || volume is null)
+                // Forex/endekslerde bazen yalnızca close gelir
+                if (close is null)
                     continue;
+
+                var openVal = open ?? close.Value;
+                var highVal = high ?? close.Value;
+                var lowVal = low ?? close.Value;
 
                 var date = DateTimeOffset.FromUnixTimeSeconds(timestamps[i]).UtcDateTime.Date;
 
                 records.Add(new StockPriceHistory
                 {
                     Date = date,
-                    Open = Math.Round(open.Value, 4),
-                    High = Math.Round(high.Value, 4),
-                    Low = Math.Round(low.Value, 4),
+                    Open = Math.Round(openVal, 4),
+                    High = Math.Round(highVal, 4),
+                    Low = Math.Round(lowVal, 4),
                     Close = Math.Round(close.Value, 4),
                     AdjustedClose = Math.Round(adjClose ?? close.Value, 4),
-                    Volume = volume.Value,
+                    Volume = volume ?? 0,
                     CreatedAt = DateTime.UtcNow
                 });
             }
 
-            return records;
+            return records
+                .GroupBy(r => r.Date)
+                .Select(g => g.Last())
+                .OrderBy(r => r.Date)
+                .ToList();
         }
         catch (HttpRequestException ex)
         {

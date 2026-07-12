@@ -59,6 +59,73 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.ToTable("CorporateActions", (string)null);
                 });
 
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.PortfolioHolding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("AvgCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<long>("Lots")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("PortfolioId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PortfolioId", "Symbol")
+                        .IsUnique();
+
+                    b.ToTable("PortfolioHoldings", (string)null);
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.PortfolioTransaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ExecutedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Lots")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("PortfolioId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int>("Side")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PortfolioId");
+
+                    b.ToTable("PortfolioTransactions", (string)null);
+                });
+
             modelBuilder.Entity("SanalBorsa.Domain.Entities.Stock", b =>
                 {
                     b.Property<int>("Id")
@@ -190,6 +257,92 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.ToTable("StockPriceHistories", (string)null);
                 });
 
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.User", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("EmailVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("FirebaseUid")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("PhoneVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Provider")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasFilter("[Email] IS NOT NULL");
+
+                    b.HasIndex("FirebaseUid")
+                        .IsUnique();
+
+                    b.HasIndex("PhoneNumber")
+                        .IsUnique()
+                        .HasFilter("[PhoneNumber] IS NOT NULL");
+
+                    b.ToTable("Users", (string)null);
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.UserPortfolio", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Cash")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserPortfolios", (string)null);
+                });
+
             modelBuilder.Entity("SanalBorsa.Domain.Entities.CorporateAction", b =>
                 {
                     b.HasOne("SanalBorsa.Domain.Entities.Stock", "Stock")
@@ -199,6 +352,28 @@ namespace SanalBorsa.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Stock");
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.PortfolioHolding", b =>
+                {
+                    b.HasOne("SanalBorsa.Domain.Entities.UserPortfolio", "Portfolio")
+                        .WithMany("Holdings")
+                        .HasForeignKey("PortfolioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Portfolio");
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.PortfolioTransaction", b =>
+                {
+                    b.HasOne("SanalBorsa.Domain.Entities.UserPortfolio", "Portfolio")
+                        .WithMany("Transactions")
+                        .HasForeignKey("PortfolioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Portfolio");
                 });
 
             modelBuilder.Entity("SanalBorsa.Domain.Entities.StockPriceHistory", b =>
@@ -212,11 +387,34 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.Navigation("Stock");
                 });
 
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.UserPortfolio", b =>
+                {
+                    b.HasOne("SanalBorsa.Domain.Entities.User", "User")
+                        .WithOne("Portfolio")
+                        .HasForeignKey("SanalBorsa.Domain.Entities.UserPortfolio", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("SanalBorsa.Domain.Entities.Stock", b =>
                 {
                     b.Navigation("CorporateActions");
 
                     b.Navigation("PriceHistories");
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.User", b =>
+                {
+                    b.Navigation("Portfolio");
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.UserPortfolio", b =>
+                {
+                    b.Navigation("Holdings");
+
+                    b.Navigation("Transactions");
                 });
 #pragma warning restore 612, 618
         }

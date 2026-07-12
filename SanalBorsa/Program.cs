@@ -1,4 +1,7 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using SanalBorsa.API.Middleware;
 using SanalBorsa.Application;
 using SanalBorsa.Infrastructure;
@@ -34,6 +37,29 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
+    // ── JWT Authentication ────────────────────────────────────────────────────
+    var jwtSecret   = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("Jwt:Secret eksik.");
+    var jwtIssuer   = builder.Configuration["Jwt:Issuer"]   ?? "SanalBorsa";
+    var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "SanalBorsa";
+
+    builder.Services
+        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                ValidateIssuer           = true,
+                ValidIssuer              = jwtIssuer,
+                ValidateAudience         = true,
+                ValidAudience            = jwtAudience,
+                ClockSkew                = TimeSpan.Zero,
+            };
+        });
+
+    builder.Services.AddAuthorization();
+
     // ── CORS ─────────────────────────────────────────────────────────────────
     builder.Services.AddCors(options =>
     {
@@ -46,7 +72,7 @@ try
                     "http://127.0.0.1:4200",
                     "http://127.0.0.1:5500",
                     "http://localhost:5500",
-                    "null"   // file:// origin for local HTML
+                    "null"
                 )
                 .AllowAnyMethod()
                 .AllowAnyHeader();
@@ -67,6 +93,21 @@ try
     builder.Services.AddSwaggerGen(c =>
     {
         c.SwaggerDoc("v1", new() { Title = "SanalBorsa API", Version = "v1" });
+        c.AddSecurityDefinition("Bearer", new()
+        {
+            Name         = "Authorization",
+            Type         = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+            Scheme       = "bearer",
+            BearerFormat = "JWT",
+            In           = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        });
+        c.AddSecurityRequirement(new()
+        {
+            {
+                new() { Reference = new() { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" } },
+                []
+            }
+        });
     });
 
     // ── Build app ─────────────────────────────────────────────────────────────
@@ -95,6 +136,7 @@ try
 
     app.UseHttpsRedirection();
     app.UseCors("FrontendPolicy");
+    app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
 

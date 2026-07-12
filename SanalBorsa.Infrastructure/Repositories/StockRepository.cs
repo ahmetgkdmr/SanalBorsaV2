@@ -27,4 +27,17 @@ public class StockRepository : BaseRepository<Stock>, IStockRepository
 
     public async Task<bool> ExistsAsync(string symbol, CancellationToken ct = default)
         => await DbSet.AnyAsync(s => s.Symbol == symbol, ct);
+
+    public async Task<IReadOnlyList<Stock>> GetBySymbolsAsync(
+        IReadOnlyList<string> symbols,
+        CancellationToken ct = default)
+    {
+        if (symbols.Count == 0)
+            return [];
+
+        return await DbSet
+            .Where(s => symbols.Contains(s.Symbol))
+            .OrderBy(s => s.Symbol)
+            .ToListAsync(ct);
+    }
 }

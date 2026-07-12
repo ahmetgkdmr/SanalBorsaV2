@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Common.Interfaces;
+using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
 
@@ -46,19 +47,21 @@ public class SyncStocksCommandHandler : IRequestHandler<SyncStocksCommand, SyncS
                     stocksUpdated++;
                 }
 
-                // Fetch corporate actions and detect new ones
-                var incomingActions = await _yahoo.GetCorporateActionsAsync(stock.YahooSymbol, cancellationToken);
-                foreach (var action in incomingActions)
+                if (!MarketInstrumentSeed.IsMarketInstrument(stock.Exchange))
                 {
-                    action.StockId = stock.Id;
-                    var exists = await _uow.CorporateActions.ExistsAsync(
-                        stock.Id, action.ActionDate, action.ActionType, cancellationToken);
-
-                    if (!exists)
+                    var incomingActions = await _yahoo.GetCorporateActionsAsync(stock.YahooSymbol, cancellationToken);
+                    foreach (var action in incomingActions)
                     {
-                        await _uow.CorporateActions.AddAsync(action, cancellationToken);
-                        stock.NeedsHistoryRefresh = true;
-                        actionsAdded++;
+                        action.StockId = stock.Id;
+                        var exists = await _uow.CorporateActions.ExistsAsync(
+                            stock.Id, action.ActionDate, action.ActionType, cancellationToken);
+
+                        if (!exists)
+                        {
+                            await _uow.CorporateActions.AddAsync(action, cancellationToken);
+                            stock.NeedsHistoryRefresh = true;
+                            actionsAdded++;
+                        }
                     }
                 }
 

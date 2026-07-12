@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Firebase service account (secret key — never commit)
+firebase-service-account.json

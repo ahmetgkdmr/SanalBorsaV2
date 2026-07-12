@@ -10,5 +10,9 @@ public interface IUnitOfWork : IDisposable
 
     ICorporateActionRepository CorporateActions { get; }
 
+    IUserRepository Users { get; }
+
+    IPortfolioRepository Portfolios { get; }
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

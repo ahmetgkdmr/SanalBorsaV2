@@ -53,7 +53,10 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
     {
         // EF Core 8 ExecuteInsert is not available; batch via chunked AddRange + SaveChanges
         const int chunkSize = 2000;
-        var list = records.ToList();
+        var list = records
+            .GroupBy(r => new { r.StockId, Date = r.Date.Date })
+            .Select(g => g.Last())
+            .ToList();
 
         for (int i = 0; i < list.Count; i += chunkSize)
         {

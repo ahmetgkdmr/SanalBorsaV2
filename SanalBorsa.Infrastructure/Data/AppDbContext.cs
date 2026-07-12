@@ -8,11 +8,13 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public DbSet<Stock> Stocks => Set<Stock>();
-
-    public DbSet<StockPriceHistory> StockPriceHistories => Set<StockPriceHistory>();
-
-    public DbSet<CorporateAction> CorporateActions => Set<CorporateAction>();
+    public DbSet<Stock>              Stocks              => Set<Stock>();
+    public DbSet<StockPriceHistory>  StockPriceHistories => Set<StockPriceHistory>();
+    public DbSet<CorporateAction>    CorporateActions    => Set<CorporateAction>();
+    public DbSet<User>               Users               => Set<User>();
+    public DbSet<UserPortfolio>      UserPortfolios      => Set<UserPortfolio>();
+    public DbSet<PortfolioHolding>   PortfolioHoldings   => Set<PortfolioHolding>();
+    public DbSet<PortfolioTransaction> PortfolioTransactions => Set<PortfolioTransaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

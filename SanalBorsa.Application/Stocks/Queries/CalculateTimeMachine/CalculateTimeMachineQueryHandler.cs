@@ -1,7 +1,9 @@
 using MediatR;
 using SanalBorsa.Application.Common.Exceptions;
+using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.Common.Services;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.Stocks.Queries.CalculateTimeMachine;
@@ -28,7 +30,9 @@ public class CalculateTimeMachineQueryHandler : IRequestHandler<CalculateTimeMac
             from: request.Date.Date,
             ct: cancellationToken);
 
-        var actions = await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
+        IReadOnlyList<CorporateAction> actions = MarketInstrumentSeed.IsMarketInstrument(stock.Exchange)
+            ? []
+            : await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
 
         return TimeMachineCalculator.Calculate(
             stock.Symbol,

@@ -2,13 +2,15 @@ using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common.Seeds;
+using SanalBorsa.Application.Indices.Commands.BootstrapMarketIndices;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Runs once at startup. Triggers full market bootstrap when Stocks or StockPriceHistories are empty.
+/// Runs once at startup. Triggers market bootstrap when data is missing.
 /// </summary>
 public class InitialDataSeedService : BackgroundService
 {
@@ -32,19 +34,31 @@ public class InitialDataSeedService : BackgroundService
         var existingStocks = await uow.Stocks.GetAllAsync(stoppingToken);
         var hasPriceData = await uow.PriceHistories.AnyAsync(stoppingToken);
 
-        if (existingStocks.Count > 0 && hasPriceData)
+        if (existingStocks.Count == 0 || !hasPriceData)
         {
             _logger.LogInformation(
-                "Database already has {StockCount} stocks and price history — skipping bootstrap",
+                "Stock bootstrap required — Stocks: {StockCount}, HasPriceData: {HasPriceData}",
+                existingStocks.Count, hasPriceData);
+
+            await mediator.Send(new BootstrapMarketDataCommand(), stoppingToken);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Database already has {StockCount} stocks and price history — skipping stock bootstrap",
                 existingStocks.Count);
-            return;
         }
 
-        _logger.LogInformation(
-            "Bootstrap required — Stocks: {StockCount}, HasPriceData: {HasPriceData}. Starting full market bootstrap...",
-            existingStocks.Count, hasPriceData);
+        var indexSymbols = MarketInstrumentSeed.All.Select(e => e.Symbol).ToList();
+        var indexStocks = await uow.Stocks.GetBySymbolsAsync(indexSymbols, stoppingToken);
+        var indicesNeedBootstrap = indexStocks.Count < indexSymbols.Count
+            || indexStocks.Any(s => s.EarliestDataDate is null || s.NeedsHistoryRefresh);
 
-        await mediator.Send(new BootstrapMarketDataCommand(), stoppingToken);
+        if (indicesNeedBootstrap)
+        {
+            _logger.LogInformation("Market instruments bootstrap required — starting index/FX history fetch...");
+            await mediator.Send(new BootstrapMarketIndicesCommand(), stoppingToken);
+        }
 
         _logger.LogInformation("Startup market bootstrap completed");
     }

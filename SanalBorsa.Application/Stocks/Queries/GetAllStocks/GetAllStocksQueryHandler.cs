@@ -1,6 +1,7 @@
 using AutoMapper;
 using MediatR;
 using SanalBorsa.Application.Common.Models;
+using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
@@ -22,7 +23,7 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
     {
         var all = await _uow.Stocks.GetAllAsync(cancellationToken);
 
-        IEnumerable<Stock> filtered = all;
+        IEnumerable<Stock> filtered = all.Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange));
 
         if (request.IsActive.HasValue)
             filtered = filtered.Where(s => s.IsActive == request.IsActive.Value);

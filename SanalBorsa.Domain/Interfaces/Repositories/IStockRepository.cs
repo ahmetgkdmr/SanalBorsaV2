@@ -11,4 +11,6 @@ public interface IStockRepository : IRepository<Stock>
     Task<IReadOnlyList<Stock>> GetStocksNeedingRefreshAsync(CancellationToken ct = default);
 
     Task<bool> ExistsAsync(string symbol, CancellationToken ct = default);
+
+    Task<IReadOnlyList<Stock>> GetBySymbolsAsync(IReadOnlyList<string> symbols, CancellationToken ct = default);
 }

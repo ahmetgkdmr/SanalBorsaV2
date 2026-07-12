@@ -5,6 +5,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Quartz;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Infrastructure.Auth;
 using SanalBorsa.Infrastructure.Data;
 using SanalBorsa.Infrastructure.ExternalServices.Bist;
 using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
@@ -29,6 +30,16 @@ public static class DependencyInjection
                     errorNumbersToAdd: null)));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // ── Firebase Admin SDK ────────────────────────────────────────────────
+        // Initialization is deferred to IFirebaseAuthProvider.VerifyIdTokenAsync
+        // so EF migrations and other design-time tools can start without credentials.
+        services.AddScoped<IFirebaseAuthProvider, FirebaseAuthProvider>();
+        services.AddSingleton<FirebaseInitializer>(sp =>
+            new FirebaseInitializer(configuration));
+
+        // ── JWT ───────────────────────────────────────────────────────────────
+        services.AddScoped<IJwtService, JwtService>();
 
         // ── Yahoo Finance HTTP client ──────────────────────────────────────────
         services.AddHttpClient("YahooFinance", client =>
@@ -75,8 +86,6 @@ public static class DependencyInjection
         // ── Quartz.NET ────────────────────────────────────────────────────────
         services.AddQuartz(q =>
         {
-
-            // DailyPriceUpdateJob — every weekday at 19:00 Turkey time (UTC+3 → 16:00 UTC)
             var dailyKey = new JobKey("DailyPriceUpdateJob", "DataSync");
             q.AddJob<DailyPriceUpdateJob>(opts => opts.WithIdentity(dailyKey));
             q.AddTrigger(opts => opts
@@ -84,7 +93,6 @@ public static class DependencyInjection
                 .WithIdentity("DailyPriceUpdateTrigger", "DataSync")
                 .WithCronSchedule("0 0 16 ? * MON-FRI", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
-            // HistoryRefreshJob — every weekday at 20:00 Turkey time (17:00 UTC)
             var refreshKey = new JobKey("HistoryRefreshJob", "DataSync");
             q.AddJob<HistoryRefreshJob>(opts => opts.WithIdentity(refreshKey));
             q.AddTrigger(opts => opts
