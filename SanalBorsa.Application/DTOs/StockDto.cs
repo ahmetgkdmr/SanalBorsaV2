@@ -16,5 +16,6 @@ public record StockDto(
     decimal? LastOpen = null,
     decimal? PreviousClose = null,
     long? LastVolume = null,
-    IReadOnlyList<decimal>? Sparkline = null
+    IReadOnlyList<decimal>? Sparkline = null,
+    IReadOnlyList<string>? BistIndices = null
 );

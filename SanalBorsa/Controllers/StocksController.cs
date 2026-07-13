@@ -33,9 +33,10 @@ public class StocksController : ControllerBase
         [FromQuery] int pageSize = 50,
         [FromQuery] string? search = null,
         [FromQuery] bool? isActive = true,
+        [FromQuery] string? indexFilter = null,
         CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new GetAllStocksQuery(page, pageSize, search, isActive), ct);
+        var result = await _mediator.Send(new GetAllStocksQuery(page, pageSize, search, isActive, indexFilter), ct);
         return Ok(result);
     }
 
@@ -60,10 +61,11 @@ public class StocksController : ControllerBase
         [FromQuery] DateTime date,
         [FromQuery] decimal pct = 50,
         [FromQuery] string mode = "lump",
+        [FromQuery] decimal? amount = null,
         CancellationToken ct = default)
     {
         var result = await _mediator.Send(
-            new CalculateTimeMachineQuery(symbol, date, pct, mode),
+            new CalculateTimeMachineQuery(symbol, date, pct, mode, amount),
             ct);
         return Ok(result);
     }

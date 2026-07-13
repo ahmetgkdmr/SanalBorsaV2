@@ -8,5 +8,6 @@ public record GetAllStocksQuery(
     int Page = 1,
     int PageSize = 50,
     string? Search = null,
-    bool? IsActive = true
+    bool? IsActive = true,
+    string? IndexFilter = null
 ) : IRequest<PagedResult<StockDto>>;

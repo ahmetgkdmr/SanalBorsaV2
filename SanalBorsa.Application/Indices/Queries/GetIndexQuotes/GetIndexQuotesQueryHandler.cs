@@ -49,18 +49,19 @@ public class GetIndexQuotesQueryHandler : IRequestHandler<GetIndexQuotesQuery, I
 
                 if (!snapshots.TryGetValue(stock.Id, out var snap) || snap.LastClose is null)
                 {
-                    return new IndexQuoteDto(
-                        stock.Symbol,
-                        stock.Name,
-                        entry.DisplayName,
-                        stock.Exchange,
-                        0,
-                        null,
-                        0,
-                        true,
-                        entry.DisplayDecimals,
-                        stock.LatestDataDate,
-                        []);
+                return new IndexQuoteDto(
+                    stock.Symbol,
+                    stock.Name,
+                    entry.DisplayName,
+                    stock.Exchange,
+                    0,
+                    null,
+                    0,
+                    true,
+                    entry.DisplayDecimals,
+                    stock.LatestDataDate,
+                    [],
+                    stock.EarliestDataDate);
                 }
 
                 var value = snap.LastClose.Value;
@@ -78,7 +79,8 @@ public class GetIndexQuotesQueryHandler : IRequestHandler<GetIndexQuotesQuery, I
                     changePct >= 0,
                     entry.DisplayDecimals,
                     stock.LatestDataDate,
-                    snap.Sparkline);
+                    snap.Sparkline,
+                    stock.EarliestDataDate);
             })
             .ToList();
 

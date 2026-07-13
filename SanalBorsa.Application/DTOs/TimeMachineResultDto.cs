@@ -15,5 +15,6 @@ public record TimeMachineResultDto(
     IReadOnlyList<SimulationPointDto> Series,
     IReadOnlyList<decimal> ValueSeries,
     IReadOnlyList<long> LotSeries,
+    IReadOnlyList<LotEventMarkerDto> LotEvents,
     string DateLabel,
     string? Error);

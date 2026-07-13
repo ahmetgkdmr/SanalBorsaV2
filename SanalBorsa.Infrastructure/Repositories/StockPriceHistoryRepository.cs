@@ -69,12 +69,15 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
     public async Task<IReadOnlyDictionary<int, MarketPriceSnapshot>> GetMarketSnapshotsAsync(
         IReadOnlyList<int> stockIds,
         int sparklineDays = 28,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int? windowDays = null)
     {
         if (stockIds.Count == 0)
             return new Dictionary<int, MarketPriceSnapshot>();
 
-        var from = DateTime.UtcNow.Date.AddDays(-(sparklineDays + 5));
+        // windowDays: kaç gün geriye bakılacak. Belirtilmezse sparklineDays + 5 gün.
+        var effectiveWindow = windowDays ?? (sparklineDays + 5);
+        var from = DateTime.UtcNow.Date.AddDays(-effectiveWindow);
         var records = await DbSet
             .AsNoTracking()
             .Where(p => stockIds.Contains(p.StockId) && p.Date >= from)
@@ -82,9 +85,31 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
             .ThenBy(p => p.Date)
             .ToListAsync(ct);
 
-        return records
+        var result = records
             .GroupBy(p => p.StockId)
             .ToDictionary(g => g.Key, g => BuildSnapshot(g.ToList(), sparklineDays));
+
+        // Pencere içinde kaydı olmayan stock'lar için en son kaydı fallback olarak al
+        var missingIds = stockIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (missingIds.Count > 0)
+        {
+            // Her eksik stock için son 28 kaydı çek; çok veri yüklemeden sparkline + son fiyat oluşturulur
+            foreach (var missingId in missingIds)
+            {
+                var fallback = await DbSet
+                    .AsNoTracking()
+                    .Where(p => p.StockId == missingId)
+                    .OrderByDescending(p => p.Date)
+                    .Take(sparklineDays + 2)
+                    .OrderBy(p => p.Date)
+                    .ToListAsync(ct);
+
+                if (fallback.Count > 0)
+                    result[missingId] = BuildSnapshot(fallback, sparklineDays);
+            }
+        }
+
+        return result;
     }
 
     private static MarketPriceSnapshot BuildSnapshot(IReadOnlyList<StockPriceHistory> ordered, int sparklineDays)

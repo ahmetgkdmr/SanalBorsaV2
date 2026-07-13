@@ -11,4 +11,5 @@ public record IndexQuoteDto(
     bool IsUp,
     int Decimals,
     DateTime? LatestDate,
-    IReadOnlyList<decimal> Sparkline);
+    IReadOnlyList<decimal> Sparkline,
+    DateTime? EarliestDate = null);

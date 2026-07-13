@@ -36,6 +36,14 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
                 s.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
         }
 
+        // Endeks filtresi — server-side, doğru sayfalama için önce uygula
+        if (!string.IsNullOrWhiteSpace(request.IndexFilter) &&
+            !request.IndexFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            filtered = filtered.Where(s =>
+                BistIndexCompositionSeed.SymbolMatchesFilter(s.Symbol, request.IndexFilter));
+        }
+
         var ordered = filtered.OrderBy(s => s.Symbol).ToList();
         var total = ordered.Count;
         var page = request.Page < 1 ? 1 : request.Page;
@@ -55,8 +63,10 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
             .Select(stock =>
             {
                 var dto = _mapper.Map<StockDto>(stock);
+                var bistIndices = BistIndexCompositionSeed.GetIndicesForSymbol(stock.Symbol);
+
                 if (!snapshots.TryGetValue(stock.Id, out var snap))
-                    return dto;
+                    return dto with { BistIndices = bistIndices };
 
                 return dto with
                 {
@@ -64,7 +74,8 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
                     LastOpen = snap.LastOpen,
                     PreviousClose = snap.PreviousClose,
                     LastVolume = snap.LastVolume,
-                    Sparkline = snap.Sparkline
+                    Sparkline = snap.Sparkline,
+                    BistIndices = bistIndices
                 };
             })
             .ToList();

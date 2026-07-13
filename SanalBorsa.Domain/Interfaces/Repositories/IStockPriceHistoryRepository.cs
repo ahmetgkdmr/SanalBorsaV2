@@ -24,5 +24,6 @@ public interface IStockPriceHistoryRepository : IRepository<StockPriceHistory>
     Task<IReadOnlyDictionary<int, MarketPriceSnapshot>> GetMarketSnapshotsAsync(
         IReadOnlyList<int> stockIds,
         int sparklineDays = 28,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        int? windowDays = null);
 }

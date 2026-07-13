@@ -40,6 +40,7 @@ public class CalculateTimeMachineQueryHandler : IRequestHandler<CalculateTimeMac
             actions,
             request.Date.Date,
             request.WagePercentage,
-            request.Mode);
+            request.Mode,
+            request.Amount);
     }
 }

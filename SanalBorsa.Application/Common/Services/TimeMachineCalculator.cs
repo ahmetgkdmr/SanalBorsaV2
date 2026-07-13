@@ -16,7 +16,8 @@ public static class TimeMachineCalculator
         IReadOnlyList<CorporateAction> actions,
         DateTime buyDate,
         decimal wagePercentage,
-        string mode)
+        string mode,
+        decimal? amount = null)
     {
         if (prices.Count == 0)
         {
@@ -43,7 +44,10 @@ public static class TimeMachineCalculator
         }
 
         var buyPrice = buyEntry.Close;
-        var wage = MinimumWageByYear.Get(buyDate.Year) * wagePercentage / 100m;
+        // Özel tutar verilmişse kullan, yoksa asgari ücret hesapla
+        var wage = amount.HasValue && amount.Value > 0
+            ? amount.Value
+            : MinimumWageByYear.Get(buyDate.Year) * wagePercentage / 100m;
         var dateLabel = buyDate.ToString("d MMMM yyyy", TrCulture);
         var normalizedMode = mode.Equals("dca", StringComparison.OrdinalIgnoreCase) ? "dca" : "lump";
 
@@ -73,6 +77,7 @@ public static class TimeMachineCalculator
             buyDate,
             buyPrice,
             wagePercentage,
+            amount,
             monthlyPoints,
             orderedActions);
     }
@@ -103,6 +108,7 @@ public static class TimeMachineCalculator
                 [],
                 [],
                 [],
+                [],
                 dateLabel,
                 $"Maalesef {dateLabel} günü {Math.Round(wage):N0} ₺ ile {symbol} hissesinden 1 lot bile alamazdın (fiyat ~{buyPrice:F2} ₺). Oranı artır ya da \"Her Ay Düzenli\" modunu dene.");
         }
@@ -115,6 +121,7 @@ public static class TimeMachineCalculator
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
         var lotSeries = new List<long>();
+        var lotEvents = new List<LotEventMarkerDto>();
 
         foreach (var point in monthlyPoints)
         {
@@ -122,7 +129,13 @@ public static class TimeMachineCalculator
                    actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date &&
                    actions[actionIdx].ActionDate.Date >= buyDate.Date)
             {
-                ApplyCorporateAction(actions[actionIdx], ref lots, ref cash);
+                var action = actions[actionIdx];
+                var lotsBefore = lots;
+                ApplyCorporateAction(action, ref lots, ref cash);
+                if (lots > lotsBefore)
+                {
+                    lotEvents.Add(BuildLotEventMarker(action, point.Year, point.Month, lotsBefore, lots));
+                }
                 actionIdx++;
             }
 
@@ -147,6 +160,7 @@ public static class TimeMachineCalculator
             series,
             valueSeries,
             lotSeries,
+            lotEvents,
             dateLabel,
             null);
     }
@@ -158,6 +172,7 @@ public static class TimeMachineCalculator
         DateTime buyDate,
         decimal buyPrice,
         decimal wagePercentage,
+        decimal? amount,
         IReadOnlyList<MonthlyPricePoint> monthlyPoints,
         IReadOnlyList<CorporateAction> actions)
     {
@@ -170,6 +185,7 @@ public static class TimeMachineCalculator
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
         var lotSeries = new List<long>();
+        var lotEvents = new List<LotEventMarkerDto>();
 
         for (var i = 0; i < monthlyPoints.Count; i++)
         {
@@ -177,7 +193,10 @@ public static class TimeMachineCalculator
 
             if (i < monthlyPoints.Count - 1)
             {
-                var monthlyWage = MinimumWageByYear.Get(point.Year) * wagePercentage / 100m;
+                // Özel tutar varsa sabit kullan, yoksa o yılın asgari ücret oranını kullan
+                var monthlyWage = amount.HasValue && amount.Value > 0
+                    ? amount.Value
+                    : MinimumWageByYear.Get(point.Year) * wagePercentage / 100m;
                 cash += monthlyWage;
                 invested += monthlyWage;
 
@@ -194,7 +213,13 @@ public static class TimeMachineCalculator
                    actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date &&
                    actions[actionIdx].ActionDate.Date >= buyDate.Date)
             {
-                ApplyCorporateAction(actions[actionIdx], ref lots, ref cash);
+                var action = actions[actionIdx];
+                var lotsBefore = lots;
+                ApplyCorporateAction(action, ref lots, ref cash);
+                if (lots > lotsBefore)
+                {
+                    lotEvents.Add(BuildLotEventMarker(action, point.Year, point.Month, lotsBefore, lots));
+                }
                 actionIdx++;
             }
 
@@ -215,6 +240,7 @@ public static class TimeMachineCalculator
                 0,
                 buyPrice,
                 monthlyPoints[^1].Price,
+                [],
                 [],
                 [],
                 [],
@@ -243,8 +269,41 @@ public static class TimeMachineCalculator
             series,
             valueSeries,
             lotSeries,
+            lotEvents,
             dateLabel,
             null);
+    }
+
+    private static LotEventMarkerDto BuildLotEventMarker(
+        CorporateAction action,
+        int year,
+        int month,
+        long lotsBefore,
+        long lotsAfter)
+    {
+        return new LotEventMarkerDto(
+            year,
+            month,
+            action.ActionDate.ToString("d MMMM yyyy", TrCulture),
+            action.ActionType.ToString(),
+            BuildLotEventLabel(action),
+            lotsBefore,
+            lotsAfter,
+            action.Description);
+    }
+
+    private static string BuildLotEventLabel(CorporateAction action)
+    {
+        return action.ActionType switch
+        {
+            CorporateActionType.BonusIssue when action.Value >= 1m =>
+                $"Hisse bölünmesi ×{action.Value:0.##}",
+            CorporateActionType.BonusIssue =>
+                $"Bedelsiz sermaye artırımı (%{action.Value * 100m:0.#})",
+            CorporateActionType.RightsIssue =>
+                $"Bedelli sermaye artırımı (%{action.Value * 100m:0.#})",
+            _ => "Lot artışı",
+        };
     }
 
     private static void ApplyCorporateAction(CorporateAction action, ref long lots, ref decimal cash)
@@ -326,6 +385,7 @@ public static class TimeMachineCalculator
             0,
             0,
             0,
+            [],
             [],
             [],
             [],
