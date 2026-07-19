@@ -13,7 +13,15 @@ public class MappingProfile : Profile
         CreateMap<StockPriceHistory, PriceHistoryDto>();
 
         CreateMap<CorporateAction, CorporateActionDto>()
-            .ForMember(d => d.Symbol, o => o.MapFrom(s => s.Stock.Symbol))
-            .ForMember(d => d.ActionTypeName, o => o.MapFrom(s => s.ActionType.ToString()));
+            .ConstructUsing(src => new CorporateActionDto(
+                src.Id,
+                src.Stock != null ? src.Stock.Symbol : string.Empty,
+                src.ActionType,
+                src.ActionType.ToString(),
+                src.ActionDate,
+                src.Value,
+                src.SubscriptionPrice,
+                src.Description,
+                src.CreatedAt));
     }
 }

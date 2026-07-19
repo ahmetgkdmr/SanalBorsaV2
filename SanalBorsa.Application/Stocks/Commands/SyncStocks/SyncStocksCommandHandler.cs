@@ -1,8 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Common.Interfaces;
-using SanalBorsa.Application.Common.Seeds;
-using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.Stocks.Commands.SyncStocks;
@@ -35,7 +33,6 @@ public class SyncStocksCommandHandler : IRequestHandler<SyncStocksCommand, SyncS
 
             try
             {
-                // Fetch metadata and update name/sector/industry if changed
                 var meta = await _yahoo.GetStockMetadataAsync(stock.YahooSymbol, cancellationToken);
                 if (meta is not null)
                 {
@@ -47,49 +44,8 @@ public class SyncStocksCommandHandler : IRequestHandler<SyncStocksCommand, SyncS
                     stocksUpdated++;
                 }
 
-                if (!MarketInstrumentSeed.IsMarketInstrument(stock.Exchange))
-                {
-                    var incomingActions = await _yahoo.GetCorporateActionsAsync(stock.YahooSymbol, cancellationToken);
-                    foreach (var action in incomingActions)
-                    {
-                        action.StockId = stock.Id;
-                        var exists = await _uow.CorporateActions.ExistsAsync(
-                            stock.Id, action.ActionDate, action.ActionType, cancellationToken);
-
-                        if (!exists)
-                        {
-                            await _uow.CorporateActions.AddAsync(action, cancellationToken);
-                            stock.NeedsHistoryRefresh = true;
-                            actionsAdded++;
-                        }
-                    }
-                }
-
-                // Only fetch prices if we have not done so, or if refresh is not needed
-                // (full refresh is handled by RefreshStockHistory command separately)
-                if (!stock.NeedsHistoryRefresh)
-                {
-                    var from = stock.LatestDataDate?.AddDays(1) ?? DateTime.UnixEpoch;
-                    if (from.Date < DateTime.UtcNow.Date)
-                    {
-                        var newPrices = await _yahoo.GetPriceHistoryAsync(
-                            stock.YahooSymbol, from, DateTime.UtcNow, cancellationToken);
-
-                        foreach (var price in newPrices)
-                        {
-                            price.StockId = stock.Id;
-                        }
-
-                        await _uow.PriceHistories.BulkInsertAsync(newPrices, cancellationToken);
-                        pricesAdded += newPrices.Count;
-
-                        if (newPrices.Count > 0)
-                        {
-                            stock.LatestDataDate = newPrices.Max(p => p.Date);
-                            _uow.Stocks.Update(stock);
-                        }
-                    }
-                }
+                // Corporate actions: KAP via CorporateActionSyncJob / POST …/corporate-actions/sync
+                // Prices: TradingView via TradingViewPriceSyncJob / sync.py
             }
             catch (Exception ex)
             {

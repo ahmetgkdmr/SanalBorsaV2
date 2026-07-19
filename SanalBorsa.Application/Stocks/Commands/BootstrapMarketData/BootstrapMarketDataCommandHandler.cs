@@ -111,20 +111,7 @@ public class BootstrapMarketDataCommandHandler : IRequestHandler<BootstrapMarket
                     "Bootstrap [{Current}/{Total}] processing {Symbol}",
                     processed, stocksToProcess.Count, stock.Symbol);
 
-                // Corporate actions
-                var incomingActions = await _yahoo.GetCorporateActionsAsync(stock.YahooSymbol, cancellationToken);
-                foreach (var action in incomingActions)
-                {
-                    action.StockId = stock.Id;
-                    var exists = await _uow.CorporateActions.ExistsAsync(
-                        stock.Id, action.ActionDate, action.ActionType, cancellationToken);
-
-                    if (!exists)
-                    {
-                        await _uow.CorporateActions.AddAsync(action, cancellationToken);
-                        actionsAdded++;
-                    }
-                }
+                // Corporate actions come from KAP (CorporateActionSyncJob / POST …/corporate-actions/sync).
 
                 // Full price history — delete existing and re-fetch from earliest available
                 await _uow.PriceHistories.DeleteAllByStockIdAsync(stock.Id, cancellationToken);

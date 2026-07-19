@@ -9,6 +9,7 @@ public record CorporateActionDto(
     string ActionTypeName,
     DateTime ActionDate,
     decimal Value,
+    decimal? SubscriptionPrice,
     string? Description,
     DateTime CreatedAt
 );

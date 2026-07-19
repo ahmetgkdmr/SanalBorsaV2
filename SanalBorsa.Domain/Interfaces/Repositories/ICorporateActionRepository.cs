@@ -9,6 +9,13 @@ public interface ICorporateActionRepository : IRepository<CorporateAction>
 
     Task<bool> ExistsAsync(int stockId, DateTime date, CorporateActionType type, CancellationToken ct = default);
 
+    Task<DateTime?> GetLatestActionDateAsync(int stockId, CancellationToken ct = default);
+
+    Task<int> DeleteAllByStockIdAsync(int stockId, CancellationToken ct = default);
+
+    /// <summary>Wipes the entire CorporateActions table (e.g. before full KAP re-import).</summary>
+    Task<int> DeleteAllAsync(CancellationToken ct = default);
+
     Task<IReadOnlyList<CorporateAction>> GetByStockIdAndTypeAsync(
         int stockId,
         CorporateActionType type,

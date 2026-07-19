@@ -46,6 +46,41 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
             .Where(p => p.StockId == stockId)
             .ExecuteDeleteAsync(ct);
 
+    public async Task DeleteByStockIdAndDateRangeAsync(
+        int stockId,
+        DateTime fromInclusive,
+        DateTime toInclusive,
+        CancellationToken ct = default)
+        => await DbSet
+            .Where(p =>
+                p.StockId == stockId
+                && p.Date >= fromInclusive.Date
+                && p.Date <= toInclusive.Date)
+            .ExecuteDeleteAsync(ct);
+
+    public async Task<int> DeleteAllAsync(CancellationToken ct = default)
+    {
+        Context.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+
+        // Hisse bazlı silme — indeksli, timeout’a daha dayanıklı
+        var stockIds = await Context.Stocks.AsNoTracking().Select(s => s.Id).ToListAsync(ct);
+        var total = 0;
+        foreach (var id in stockIds)
+        {
+            total += await DbSet.Where(p => p.StockId == id).ExecuteDeleteAsync(ct);
+        }
+
+        return total;
+    }
+
+    public async Task<int> DeleteCreatedBeforeAsync(DateTime createdBeforeUtc, CancellationToken ct = default)
+    {
+        Context.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+        return await DbSet
+            .Where(p => p.CreatedAt < createdBeforeUtc)
+            .ExecuteDeleteAsync(ct);
+    }
+
     public async Task<bool> AnyAsync(CancellationToken ct = default)
         => await DbSet.AnyAsync(ct);
 
@@ -130,5 +165,53 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
             previous?.Close,
             latest.Volume,
             sparkline);
+    }
+
+    public async Task<DateTime?> GetLatestTradingDateAsync(CancellationToken ct = default)
+    {
+        if (!await DbSet.AnyAsync(ct)) return null;
+        return await DbSet.MaxAsync(p => p.Date, ct);
+    }
+
+    public async Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close)>> GetClosesOnOrBeforeAsync(
+        IReadOnlyList<int> stockIds,
+        DateTime onOrBefore,
+        CancellationToken ct = default)
+    {
+        if (stockIds.Count == 0)
+            return new Dictionary<int, (DateTime, decimal)>();
+
+        var cutoff = onOrBefore.Date;
+        var ids = stockIds.Distinct().ToList();
+
+        // Son işlem günü (cutoff dahil) her hisse için
+        var dateRows = await DbSet
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.StockId) && p.Date <= cutoff)
+            .GroupBy(p => p.StockId)
+            .Select(g => new { StockId = g.Key, Date = g.Max(x => x.Date) })
+            .ToListAsync(ct);
+
+        if (dateRows.Count == 0)
+            return new Dictionary<int, (DateTime, decimal)>();
+
+        var keys = dateRows.Select(r => (r.StockId, r.Date)).ToHashSet();
+        var stockIdSet = dateRows.Select(r => r.StockId).ToHashSet();
+        var minDate = dateRows.Min(r => r.Date);
+
+        var prices = await DbSet
+            .AsNoTracking()
+            .Where(p => stockIdSet.Contains(p.StockId) && p.Date >= minDate && p.Date <= cutoff)
+            .Select(p => new { p.StockId, p.Date, p.Close })
+            .ToListAsync(ct);
+
+        var result = new Dictionary<int, (DateTime, decimal)>();
+        foreach (var p in prices)
+        {
+            if (!keys.Contains((p.StockId, p.Date))) continue;
+            result[p.StockId] = (p.Date, p.Close);
+        }
+
+        return result;
     }
 }

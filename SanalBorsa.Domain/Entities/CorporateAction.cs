@@ -16,11 +16,17 @@ public class CorporateAction
 
     /// <summary>
     /// Interpretation depends on ActionType:
-    /// - Dividend: cash amount per share in TRY
-    /// - BonusIssue: bonus ratio (e.g. 0.5 means 1 new share per 2 existing)
-    /// - RightsIssue: rights ratio
+    /// - Dividend: cash amount per share in TRY (Hisse Başı Brüt)
+    /// - BonusIssue: total lot multiplier after the event (e.g. %100 bedelsiz → 2.0, %15 → 1.15)
+    /// - RightsIssue: new/old ratio (e.g. %100 bedelli → 1.0 → lots doubles via lots += lots * value)
     /// </summary>
     public decimal Value { get; set; }
+
+    /// <summary>
+    /// RightsIssue only: rüçhan hakkı kullandırma fiyatı (TL / yeni hisse).
+    /// Null for BonusIssue / Dividend.
+    /// </summary>
+    public decimal? SubscriptionPrice { get; set; }
 
     public string? Description { get; set; }
 

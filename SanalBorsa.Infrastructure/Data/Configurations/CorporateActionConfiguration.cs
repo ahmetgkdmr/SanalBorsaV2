@@ -24,6 +24,9 @@ public class CorporateActionConfiguration : IEntityTypeConfiguration<CorporateAc
             .IsRequired()
             .HasPrecision(18, 6);
 
+        builder.Property(a => a.SubscriptionPrice)
+            .HasPrecision(18, 6);
+
         builder.Property(a => a.Description)
             .HasMaxLength(500);
 

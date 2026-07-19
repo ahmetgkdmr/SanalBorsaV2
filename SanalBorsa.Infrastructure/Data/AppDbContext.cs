@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<Stock>              Stocks              => Set<Stock>();
     public DbSet<StockPriceHistory>  StockPriceHistories => Set<StockPriceHistory>();
     public DbSet<CorporateAction>    CorporateActions    => Set<CorporateAction>();
+    public DbSet<TopGainer>          TopGainers          => Set<TopGainer>();
     public DbSet<User>               Users               => Set<User>();
     public DbSet<UserPortfolio>      UserPortfolios      => Set<UserPortfolio>();
     public DbSet<PortfolioHolding>   PortfolioHoldings   => Set<PortfolioHolding>();

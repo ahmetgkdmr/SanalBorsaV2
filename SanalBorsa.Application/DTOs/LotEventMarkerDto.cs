@@ -6,6 +6,9 @@ public record LotEventMarkerDto(
     string ActionDateLabel,
     string ActionType,
     string Label,
-    long LotsBefore,
-    long LotsAfter,
-    string? Description);
+    decimal LotsBefore,
+    decimal LotsAfter,
+    string? Description,
+    decimal? CashReceived = null,
+    decimal? LotsBought = null,
+    string? Story = null);

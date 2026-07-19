@@ -9,6 +9,7 @@ using SanalBorsa.Infrastructure.Auth;
 using SanalBorsa.Infrastructure.Data;
 using SanalBorsa.Infrastructure.ExternalServices.Bist;
 using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
+using SanalBorsa.Infrastructure.ExternalServices.Kap;
 using SanalBorsa.Infrastructure.ExternalServices.YahooFinance;
 using SanalBorsa.Infrastructure.Jobs;
 
@@ -72,6 +73,20 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IIsYatirimPriceService, IsYatirimPriceService>();
+        services.AddScoped<IIsYatirimCorporateActionService, IsYatirimCorporateActionService>();
+
+        services.AddHttpClient("Kap", client =>
+        {
+            client.BaseAddress = new Uri("https://www.kap.org.tr/");
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/json,text/plain,*/*");
+            client.DefaultRequestHeaders.Add("Referer", "https://www.kap.org.tr/tr/bildirim-sorgu");
+            client.Timeout = TimeSpan.FromSeconds(120);
+        });
+
+        services.AddScoped<IKapCorporateActionService, KapCorporateActionService>();
 
         services.AddHttpClient("BistSymbols", client =>
         {
@@ -99,6 +114,30 @@ public static class DependencyInjection
                 .ForJob(refreshKey)
                 .WithIdentity("HistoryRefreshTrigger", "DataSync")
                 .WithCronSchedule("0 0 17 ? * MON-FRI", x => x.InTimeZone(TimeZoneInfo.Utc)));
+
+            // 23:00 Turkey (UTC+3) = 20:00 UTC — İş Yatırım corporate actions
+            var corpKey = new JobKey("CorporateActionSyncJob", "DataSync");
+            q.AddJob<CorporateActionSyncJob>(opts => opts.WithIdentity(corpKey));
+            q.AddTrigger(opts => opts
+                .ForJob(corpKey)
+                .WithIdentity("CorporateActionSyncTrigger", "DataSync")
+                .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+
+            // 23:00 Turkey — TradingView raw price incremental fill
+            var tvKey = new JobKey("TradingViewPriceSyncJob", "DataSync");
+            q.AddJob<TradingViewPriceSyncJob>(opts => opts.WithIdentity(tvKey));
+            q.AddTrigger(opts => opts
+                .ForJob(tvKey)
+                .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
+                .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+
+            // 23:05 Turkey — top gainers (week / month / year) after price sync
+            var topKey = new JobKey("TopGainersJob", "DataSync");
+            q.AddJob<TopGainersJob>(opts => opts.WithIdentity(topKey));
+            q.AddTrigger(opts => opts
+                .ForJob(topKey)
+                .WithIdentity("TopGainersTrigger", "DataSync")
+                .WithCronSchedule("0 5 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
         });
 
         services.AddQuartzHostedService(opts => opts.WaitForJobsToComplete = true);

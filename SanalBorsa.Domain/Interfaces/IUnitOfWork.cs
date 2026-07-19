@@ -14,5 +14,10 @@ public interface IUnitOfWork : IDisposable
 
     IPortfolioRepository Portfolios { get; }
 
+    ITopGainerRepository TopGainers { get; }
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
+
+    /// <summary>Detaches all tracked entities after a failed SaveChanges so the next stock can proceed.</summary>
+    void ClearChanges();
 }
