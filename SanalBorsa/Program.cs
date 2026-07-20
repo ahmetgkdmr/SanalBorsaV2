@@ -61,21 +61,35 @@ try
     builder.Services.AddAuthorization();
 
     // ── CORS ─────────────────────────────────────────────────────────────────
+    var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+        ??
+        [
+            "http://localhost:3000",
+            "http://localhost:4200",
+            "http://127.0.0.1:4200",
+            "http://127.0.0.1:5500",
+            "http://localhost:5500",
+        ];
+    var corsAllowAny = builder.Configuration.GetValue("Cors:AllowAnyOrigin", false);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("FrontendPolicy", policy =>
         {
-            policy
-                .WithOrigins(
-                    "http://localhost:3000",
-                    "http://localhost:4200",
-                    "http://127.0.0.1:4200",
-                    "http://127.0.0.1:5500",
-                    "http://localhost:5500",
-                    "null"
-                )
-                .AllowAnyMethod()
-                .AllowAnyHeader();
+            if (corsAllowAny)
+            {
+                policy
+                    .SetIsOriginAllowed(_ => true)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+            }
+            else
+            {
+                policy
+                    .WithOrigins(corsOrigins)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+            }
         });
     });
 
@@ -134,8 +148,13 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
+    // CORS, HTTPS redirect’ten önce olmalı (preflight kırılmasın)
     app.UseCors("FrontendPolicy");
+
+    // Render TLS’i dışarıda sonlandırır; konteyner HTTP:8080 dinler
+    if (!app.Environment.IsProduction())
+        app.UseHttpsRedirection();
+
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
