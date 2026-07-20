@@ -1,0 +1,19 @@
+.git
+.gitignore
+.vs
+.vscode
+.idea
+**/.DS_Store
+
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+
+**/logs/
+**/*.log
+**/*.md
+
+# Yerel secret kopyaları (gerekirse Render env ile ver)
+**/firebase-service-account.json
+**/appsettings.Development.json
