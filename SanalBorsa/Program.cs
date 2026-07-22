@@ -2,8 +2,11 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using SanalBorsa.API.Hubs;
 using SanalBorsa.API.Middleware;
+using SanalBorsa.API.Services;
 using SanalBorsa.Application;
+using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Infrastructure;
 using SanalBorsa.Infrastructure.Data;
 using Serilog;
@@ -81,17 +84,31 @@ try
                 policy
                     .SetIsOriginAllowed(_ => true)
                     .AllowAnyMethod()
-                    .AllowAnyHeader();
+                    .AllowAnyHeader()
+                    .AllowCredentials();
             }
             else
             {
                 policy
                     .WithOrigins(corsOrigins)
                     .AllowAnyMethod()
-                    .AllowAnyHeader();
+                    .AllowAnyHeader()
+                    .AllowCredentials();
             }
         });
     });
+
+    // Canlı kripto batch'leri için (varsayılan 32KB yetersiz kalıyordu → fiyat donuyordu)
+    builder.Services.AddSignalR(options =>
+    {
+        options.MaximumReceiveMessageSize = 1024 * 1024;
+        options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    });
+    builder.Services.AddSingleton<SignalRCryptoTickerPublisher>();
+    builder.Services.AddSingleton<ICryptoTickerPublisher>(sp =>
+        sp.GetRequiredService<SignalRCryptoTickerPublisher>());
+    builder.Services.AddHostedService(sp =>
+        sp.GetRequiredService<SignalRCryptoTickerPublisher>());
 
     // ── Controllers & OpenAPI ─────────────────────────────────────────────────
     builder.Services.AddControllers()
@@ -158,6 +175,7 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
+    app.MapHub<CryptoHub>("/hubs/crypto");
 
     Log.Information("SanalBorsa API starting on {Env}", app.Environment.EnvironmentName);
     await app.RunAsync();

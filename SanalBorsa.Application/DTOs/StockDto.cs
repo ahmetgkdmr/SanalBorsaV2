@@ -12,6 +12,7 @@ public record StockDto(
     DateTime? EarliestDataDate,
     DateTime? LatestDataDate,
     bool NeedsHistoryRefresh,
+    string MarketType = "bist",
     decimal? LastClose = null,
     decimal? LastOpen = null,
     decimal? PreviousClose = null,

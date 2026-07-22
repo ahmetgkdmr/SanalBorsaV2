@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Quartz;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Interfaces;
 using SanalBorsa.Infrastructure.Auth;
 using SanalBorsa.Infrastructure.Data;
+using SanalBorsa.Infrastructure.ExternalServices.Binance;
 using SanalBorsa.Infrastructure.ExternalServices.Bist;
 using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
 using SanalBorsa.Infrastructure.ExternalServices.Kap;
@@ -31,6 +33,21 @@ public static class DependencyInjection
                     errorNumbersToAdd: null)));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddMemoryCache();
+
+        // ── Binance public market data ────────────────────────────────────────
+        services.AddHttpClient("Binance", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.Add("User-Agent", "SanalBorsa/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+        });
+        services.AddScoped<IBinanceMarketClient, BinanceMarketClient>();
+        services.AddScoped<ICryptoMarketService, CryptoMarketService>();
+        services.AddSingleton<ICryptoLiveTickerStore, CryptoLiveTickerStore>();
+        // ICryptoTickerPublisher API katmanında SignalR ile override edilir; yoksa no-op.
+        services.TryAddSingleton<ICryptoTickerPublisher, NullCryptoTickerPublisher>();
+        services.AddHostedService<BinanceTickerStreamService>();
 
         // ── Firebase Admin SDK ────────────────────────────────────────────────
         // Initialization is deferred to IFirebaseAuthProvider.VerifyIdTokenAsync
@@ -130,6 +147,14 @@ public static class DependencyInjection
                 .ForJob(tvKey)
                 .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
                 .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+
+            // 01:30 UTC — Binance USDT günlük kline incremental
+            var cryptoHistKey = new JobKey("CryptoHistorySyncJob", "DataSync");
+            q.AddJob<CryptoHistorySyncJob>(opts => opts.WithIdentity(cryptoHistKey));
+            q.AddTrigger(opts => opts
+                .ForJob(cryptoHistKey)
+                .WithIdentity("CryptoHistorySyncTrigger", "DataSync")
+                .WithCronSchedule("0 30 1 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
             // 23:05 Turkey — top gainers (week / month / year) after price sync
             var topKey = new JobKey("TopGainersJob", "DataSync");

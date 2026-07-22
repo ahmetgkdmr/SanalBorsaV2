@@ -22,4 +22,5 @@ public record UserDto(
     string? PhoneNumber,
     string? AvatarUrl,
     string Provider,
-    decimal PortfolioCash);
+    decimal PortfolioCashTry,
+    decimal PortfolioCashUsd);

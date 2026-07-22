@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SanalBorsa.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using SanalBorsa.Infrastructure.Data;
 namespace SanalBorsa.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722175704_AddCryptoPortfolioSupport")]
+    partial class AddCryptoPortfolioSupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -183,11 +186,6 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.Property<DateTime?>("LatestDataDate")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("MarketType")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(1);
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -204,24 +202,22 @@ namespace SanalBorsa.Infrastructure.Migrations
 
                     b.Property<string>("Symbol")
                         .IsRequired()
-                        .HasMaxLength(32)
+                        .HasMaxLength(20)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(32)");
+                        .HasColumnType("varchar(20)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("YahooSymbol")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
+                        .HasMaxLength(25)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(32)")
-                        .HasDefaultValue("");
+                        .HasColumnType("varchar(25)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MarketType", "Symbol")
+                    b.HasIndex("Symbol")
                         .IsUnique();
 
                     b.ToTable("Stocks", (string)null);

@@ -45,6 +45,7 @@ public class LoginWithFirebaseCommandHandler
                 Id        = Guid.NewGuid(),
                 UserId    = user.Id,
                 Cash      = 1_000_000m,
+                CashUsd   = 100_000m,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             };
@@ -78,7 +79,8 @@ public class LoginWithFirebaseCommandHandler
                 user.PhoneNumber,
                 user.AvatarUrl,
                 claims.Provider,
-                portfolio2?.Cash ?? 1_000_000m));
+                portfolio2?.Cash ?? 1_000_000m,
+                portfolio2?.CashUsd ?? 100_000m));
     }
 
     private static User CreateUser(FirebaseTokenClaims claims) => new()

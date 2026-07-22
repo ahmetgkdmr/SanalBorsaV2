@@ -6,7 +6,11 @@ public class UserPortfolio
 
     public Guid UserId { get; set; }
 
+    /// <summary>BIST nakit bakiyesi (TRY).</summary>
     public decimal Cash { get; set; } = 1_000_000m;
+
+    /// <summary>Kripto nakit bakiyesi (USD).</summary>
+    public decimal CashUsd { get; set; } = 100_000m;
 
     public DateTime CreatedAt { get; set; }
 
@@ -27,7 +31,10 @@ public class PortfolioHolding
 
     public string Symbol { get; set; } = string.Empty;
 
-    public long Lots { get; set; }
+    public MarketType MarketType { get; set; } = MarketType.Bist;
+
+    /// <summary>BIST: tam lot; kripto: fractional miktar.</summary>
+    public decimal Quantity { get; set; }
 
     public decimal AvgCost { get; set; }
 
@@ -42,13 +49,18 @@ public class PortfolioTransaction
 
     public string Symbol { get; set; } = string.Empty;
 
+    public MarketType MarketType { get; set; } = MarketType.Bist;
+
     public TxSide Side { get; set; }
 
-    public long Lots { get; set; }
+    public decimal Quantity { get; set; }
 
     public decimal Price { get; set; }
 
     public decimal Total { get; set; }
+
+    /// <summary>Kripto emirlerinde kademe erime özeti (JSON).</summary>
+    public string? FillBreakdownJson { get; set; }
 
     public DateTime ExecutedAt { get; set; }
 
@@ -59,4 +71,10 @@ public enum TxSide
 {
     Buy  = 1,
     Sell = 2,
+}
+
+public enum MarketType
+{
+    Bist   = 1,
+    Crypto = 2,
 }

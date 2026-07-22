@@ -36,6 +36,7 @@ public class UserPortfolioConfiguration : IEntityTypeConfiguration<UserPortfolio
         builder.ToTable("UserPortfolios");
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Cash).HasPrecision(18, 4);
+        builder.Property(p => p.CashUsd).HasPrecision(18, 4);
         builder.HasIndex(p => p.UserId).IsUnique();
 
         builder.HasMany(p => p.Holdings)
@@ -56,9 +57,10 @@ public class PortfolioHoldingConfiguration : IEntityTypeConfiguration<PortfolioH
     {
         builder.ToTable("PortfolioHoldings");
         builder.HasKey(h => h.Id);
-        builder.Property(h => h.Symbol).HasMaxLength(20).IsRequired();
-        builder.Property(h => h.AvgCost).HasPrecision(18, 4);
-        builder.HasIndex(h => new { h.PortfolioId, h.Symbol }).IsUnique();
+        builder.Property(h => h.Symbol).HasMaxLength(32).IsRequired();
+        builder.Property(h => h.Quantity).HasPrecision(18, 8);
+        builder.Property(h => h.AvgCost).HasPrecision(18, 8);
+        builder.HasIndex(h => new { h.PortfolioId, h.Symbol, h.MarketType }).IsUnique();
     }
 }
 
@@ -68,8 +70,10 @@ public class PortfolioTransactionConfiguration : IEntityTypeConfiguration<Portfo
     {
         builder.ToTable("PortfolioTransactions");
         builder.HasKey(t => t.Id);
-        builder.Property(t => t.Symbol).HasMaxLength(20).IsRequired();
-        builder.Property(t => t.Price).HasPrecision(18, 4);
-        builder.Property(t => t.Total).HasPrecision(18, 4);
+        builder.Property(t => t.Symbol).HasMaxLength(32).IsRequired();
+        builder.Property(t => t.Quantity).HasPrecision(18, 8);
+        builder.Property(t => t.Price).HasPrecision(18, 8);
+        builder.Property(t => t.Total).HasPrecision(18, 8);
+        builder.Property(t => t.FillBreakdownJson).HasColumnType("nvarchar(max)");
     }
 }

@@ -1,5 +1,6 @@
 using MediatR;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Domain.Entities;
 
 namespace SanalBorsa.Application.Stocks.Queries.CalculateTimeMachine;
 
@@ -8,5 +9,6 @@ public record CalculateTimeMachineQuery(
     DateTime Date,
     decimal WagePercentage,
     string Mode = "lump",
-    decimal? Amount = null          // Belirlenmişse asgari ücret hesabını geçersiz kılar
+    decimal? Amount = null,
+    MarketType MarketType = MarketType.Bist
 ) : IRequest<TimeMachineResultDto>;

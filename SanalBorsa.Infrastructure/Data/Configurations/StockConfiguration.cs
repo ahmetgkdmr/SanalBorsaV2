@@ -14,16 +14,17 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
 
         builder.Property(s => s.Symbol)
             .IsRequired()
-            .HasMaxLength(20)
+            .HasMaxLength(32)
             .IsUnicode(false);
 
-        builder.HasIndex(s => s.Symbol)
+        builder.HasIndex(s => new { s.MarketType, s.Symbol })
             .IsUnique();
 
         builder.Property(s => s.YahooSymbol)
             .IsRequired()
-            .HasMaxLength(25)
-            .IsUnicode(false);
+            .HasMaxLength(32)
+            .IsUnicode(false)
+            .HasDefaultValue("");
 
         builder.Property(s => s.Name)
             .IsRequired()
@@ -46,6 +47,11 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
             .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValue("IST");
+
+        builder.Property(s => s.MarketType)
+            .IsRequired()
+            .HasDefaultValue(MarketType.Bist)
+            .HasConversion<int>();
 
         builder.Property(s => s.IsActive)
             .HasDefaultValue(true);

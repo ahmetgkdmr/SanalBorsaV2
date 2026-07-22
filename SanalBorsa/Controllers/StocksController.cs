@@ -113,10 +113,15 @@ public class StocksController : ControllerBase
         [FromQuery] decimal pct = 50,
         [FromQuery] string mode = "lump",
         [FromQuery] decimal? amount = null,
+        [FromQuery] string? marketType = null,
         CancellationToken ct = default)
     {
+        var mt = string.Equals(marketType, "crypto", StringComparison.OrdinalIgnoreCase)
+            ? Domain.Entities.MarketType.Crypto
+            : Domain.Entities.MarketType.Bist;
+
         var result = await _mediator.Send(
-            new CalculateTimeMachineQuery(symbol, date, pct, mode, amount),
+            new CalculateTimeMachineQuery(symbol, date, pct, mode, amount, mt),
             ct);
         return Ok(result);
     }

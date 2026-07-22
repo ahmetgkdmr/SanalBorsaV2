@@ -32,6 +32,16 @@ public class ExceptionHandlingMiddleware
             _logger.LogWarning(ex, "Resource not found");
             await WriteErrorAsync(context, HttpStatusCode.NotFound, "Not Found", ex.Message);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Unauthorized");
+            await WriteErrorAsync(context, HttpStatusCode.Unauthorized, "Unauthorized", ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Business rule violation");
+            await WriteErrorAsync(context, HttpStatusCode.BadRequest, "Bad Request", ex.Message);
+        }
         catch (Application.Common.Exceptions.ValidationException ex)
         {
             _logger.LogWarning("Validation failed: {@Errors}", ex.Errors);

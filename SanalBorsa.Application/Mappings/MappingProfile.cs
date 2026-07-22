@@ -8,7 +8,29 @@ public class MappingProfile : Profile
 {
     public MappingProfile()
     {
-        CreateMap<Stock, StockDto>();
+        CreateMap<Stock, StockDto>()
+            .ConstructUsing(s => new StockDto(
+                s.Id,
+                s.Symbol,
+                s.Name,
+                s.Sector,
+                s.Industry,
+                s.Currency,
+                s.Exchange,
+                s.IsActive,
+                s.EarliestDataDate,
+                s.LatestDataDate,
+                s.NeedsHistoryRefresh,
+                s.MarketType == Domain.Entities.MarketType.Crypto ? "crypto" : "bist",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
         CreateMap<StockPriceHistory, PriceHistoryDto>();
 

@@ -40,6 +40,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, L
                 user.PhoneNumber,
                 user.AvatarUrl,
                 user.Provider.ToString().ToLowerInvariant(),
-                portfolio?.Cash ?? 1_000_000m));
+                portfolio?.Cash ?? 1_000_000m,
+                portfolio?.CashUsd ?? 100_000m));
     }
 }

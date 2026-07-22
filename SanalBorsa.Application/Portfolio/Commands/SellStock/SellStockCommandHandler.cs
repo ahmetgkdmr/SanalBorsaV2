@@ -17,16 +17,23 @@ public class SellStockCommandHandler : IRequestHandler<SellStockCommand, Portfol
 
     public async Task<PortfolioDto> Handle(SellStockCommand request, CancellationToken cancellationToken)
     {
+        if (request.Lots <= 0)
+            throw new InvalidOperationException("Lot sayısı 0'dan büyük olmalıdır.");
+
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);
 
-        var holding = portfolio.Holdings.FirstOrDefault(h => h.Symbol == request.Symbol)
+        var symbol = request.Symbol.ToUpperInvariant();
+        var qty = (decimal)request.Lots;
+
+        var holding = portfolio.Holdings.FirstOrDefault(h =>
+                h.Symbol == symbol && h.MarketType == MarketType.Bist)
             ?? throw new InvalidOperationException($"Portföyde {request.Symbol} bulunamadı.");
 
-        if (holding.Lots < request.Lots)
+        if (holding.Quantity < qty)
             throw new InvalidOperationException("Yeterli lot yok.");
 
-        var stock = await _uow.Stocks.GetBySymbolAsync(request.Symbol.ToUpperInvariant(), cancellationToken)
+        var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken)
             ?? throw new NotFoundException("Stock", request.Symbol);
 
         var snapshot = await _uow.PriceHistories.GetMarketSnapshotsAsync(
@@ -36,10 +43,10 @@ public class SellStockCommandHandler : IRequestHandler<SellStockCommand, Portfol
             throw new InvalidOperationException($"{request.Symbol} için güncel fiyat bulunamadı.");
 
         var price = snap.LastClose.Value;
-        var total = price * request.Lots;
+        var total = price * qty;
 
-        holding.Lots -= request.Lots;
-        if (holding.Lots == 0)
+        holding.Quantity -= qty;
+        if (holding.Quantity == 0)
             portfolio.Holdings.Remove(holding);
 
         portfolio.Cash += total;
@@ -48,9 +55,10 @@ public class SellStockCommandHandler : IRequestHandler<SellStockCommand, Portfol
         {
             Id          = Guid.NewGuid(),
             PortfolioId = portfolio.Id,
-            Symbol      = request.Symbol,
+            Symbol      = symbol,
+            MarketType  = MarketType.Bist,
             Side        = TxSide.Sell,
-            Lots        = request.Lots,
+            Quantity    = qty,
             Price       = price,
             Total       = total,
             ExecutedAt  = DateTime.UtcNow,

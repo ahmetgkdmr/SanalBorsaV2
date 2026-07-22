@@ -22,7 +22,10 @@ public class CalculateTimeMachineQueryHandler : IRequestHandler<CalculateTimeMac
         CancellationToken cancellationToken)
     {
         var symbol = request.Symbol.ToUpperInvariant();
-        var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken)
+        if (request.MarketType == MarketType.Crypto && !symbol.EndsWith("USDT", StringComparison.Ordinal))
+            symbol += "USDT";
+
+        var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken, request.MarketType)
                     ?? throw new NotFoundException(nameof(Domain.Entities.Stock), symbol);
 
         var prices = await _uow.PriceHistories.GetByStockIdAsync(
@@ -30,9 +33,12 @@ public class CalculateTimeMachineQueryHandler : IRequestHandler<CalculateTimeMac
             from: request.Date.Date,
             ct: cancellationToken);
 
-        IReadOnlyList<CorporateAction> actions = MarketInstrumentSeed.IsMarketInstrument(stock.Exchange)
-            ? []
-            : await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
+        // Crypto ve endeks: corp action yok
+        IReadOnlyList<CorporateAction> actions =
+            request.MarketType == MarketType.Crypto
+            || MarketInstrumentSeed.IsMarketInstrument(stock.Exchange)
+                ? []
+                : await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
 
         return TimeMachineCalculator.Calculate(
             stock.Symbol,

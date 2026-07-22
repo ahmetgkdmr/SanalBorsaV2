@@ -42,7 +42,7 @@ public class RefreshStockHistoryCommandHandler : IRequestHandler<RefreshStockHis
 
         int totalRefreshed = 0, totalInserted = 0;
 
-        foreach (var stock in stocks)
+        foreach (var stock in stocks.Where(s => s.MarketType == MarketType.Bist))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

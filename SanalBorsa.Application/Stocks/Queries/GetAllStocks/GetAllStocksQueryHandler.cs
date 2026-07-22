@@ -28,7 +28,9 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
             .GroupBy(t => t.Symbol)
             .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Period).First());
 
-        IEnumerable<Stock> filtered = all.Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange));
+        IEnumerable<Stock> filtered = all
+            .Where(s => s.MarketType == MarketType.Bist)
+            .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange));
 
         if (request.IsActive.HasValue)
             filtered = filtered.Where(s => s.IsActive == request.IsActive.Value);
