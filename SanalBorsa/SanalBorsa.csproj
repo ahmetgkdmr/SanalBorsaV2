@@ -22,4 +22,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Yerel geliştirme: service account JSON çıktı klasörüne kopyalanır (gitignore'da). -->
+  <ItemGroup>
+    <None Update="firebase-service-account.json" Condition="Exists('firebase-service-account.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

@@ -61,7 +61,6 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
         {
             portfolio.Holdings.Add(new PortfolioHolding
             {
-                Id          = Guid.NewGuid(),
                 PortfolioId = portfolio.Id,
                 Symbol      = symbol,
                 MarketType  = MarketType.Crypto,
@@ -72,7 +71,6 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
 
         portfolio.Transactions.Add(new PortfolioTransaction
         {
-            Id                = Guid.NewGuid(),
             PortfolioId       = portfolio.Id,
             Symbol            = symbol,
             MarketType        = MarketType.Crypto,
@@ -85,7 +83,6 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
         });
 
         portfolio.UpdatedAt = DateTime.UtcNow;
-        _uow.Portfolios.Update(portfolio);
         await _uow.SaveChangesAsync(cancellationToken);
 
         return new CryptoTradeResultDto(PortfolioDto.FromEntity(portfolio), fill);

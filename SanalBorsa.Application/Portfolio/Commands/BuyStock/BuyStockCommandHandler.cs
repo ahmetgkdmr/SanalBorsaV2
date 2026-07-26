@@ -54,7 +54,6 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
         {
             portfolio.Holdings.Add(new PortfolioHolding
             {
-                Id          = Guid.NewGuid(),
                 PortfolioId = portfolio.Id,
                 Symbol      = symbol,
                 MarketType  = MarketType.Bist,
@@ -65,7 +64,6 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
 
         portfolio.Transactions.Add(new PortfolioTransaction
         {
-            Id          = Guid.NewGuid(),
             PortfolioId = portfolio.Id,
             Symbol      = symbol,
             MarketType  = MarketType.Bist,
@@ -77,7 +75,8 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
         });
 
         portfolio.UpdatedAt = DateTime.UtcNow;
-        _uow.Portfolios.Update(portfolio);
+        // Portfolio zaten tracked; Update() yeni Holding/Transaction'ları Modified sayıp
+        // concurrency hatasına (0 row affected) yol açar.
         await _uow.SaveChangesAsync(cancellationToken);
 
         return PortfolioDto.FromEntity(portfolio);

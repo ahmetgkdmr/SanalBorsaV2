@@ -56,7 +56,6 @@ public class SellCryptoCommandHandler
 
         portfolio.Transactions.Add(new PortfolioTransaction
         {
-            Id                = Guid.NewGuid(),
             PortfolioId       = portfolio.Id,
             Symbol            = symbol,
             MarketType        = MarketType.Crypto,
@@ -69,7 +68,6 @@ public class SellCryptoCommandHandler
         });
 
         portfolio.UpdatedAt = DateTime.UtcNow;
-        _uow.Portfolios.Update(portfolio);
         await _uow.SaveChangesAsync(cancellationToken);
 
         return new BuyCrypto.CryptoTradeResultDto(PortfolioDto.FromEntity(portfolio), fill);

@@ -61,8 +61,8 @@ public static class DependencyInjection
         // Initialization is deferred to IFirebaseAuthProvider.VerifyIdTokenAsync
         // so EF migrations and other design-time tools can start without credentials.
         services.AddScoped<IFirebaseAuthProvider, FirebaseAuthProvider>();
-        services.AddSingleton<FirebaseInitializer>(sp =>
-            new FirebaseInitializer(configuration));
+        services.AddSingleton<FirebaseInitializer>();
+
 
         // ── JWT ───────────────────────────────────────────────────────────────
         services.AddScoped<IJwtService, JwtService>();

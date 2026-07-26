@@ -1,3 +1,4 @@
+using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Common.Interfaces;
@@ -28,6 +29,13 @@ public class FirebaseAuthProvider : IFirebaseAuthProvider
         CancellationToken ct = default)
     {
         _initializer.EnsureInitialized(_logger);
+
+        if (!_initializer.IsReady || FirebaseApp.DefaultInstance is null)
+        {
+            throw new InvalidOperationException(
+                "Sunucu Firebase kimlik doğrulaması yapılandırılmamış. " +
+                "Geliştirici: firebase-service-account.json dosyasını API proje köküne ekleyip uygulamayı yeniden başlatın.");
+        }
 
         try
         {
