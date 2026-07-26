@@ -6,6 +6,7 @@ using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
+using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
 using SanalBorsa.Application.Stocks.Commands.SyncStockUniverse;
@@ -191,6 +192,43 @@ public class StocksController : ControllerBase
         {
             message = "BIST ham fiyat sync başladı (TradingView WebSocket).",
             full,
+            symbol,
+        });
+    }
+
+    /// <summary>
+    /// Mevcut satırlarda yalnızca AdjustedClose günceller (TV adjustment=dividends).
+    /// Close / OHLCV değişmez. Arka planda çalışır.
+    /// </summary>
+    [HttpPost("sync-adjusted-closes")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public IActionResult SyncAdjustedCloses(
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromQuery] string? symbol = null)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+                var result = await mediator.Send(new SyncBistAdjustedClosesCommand(Symbol: symbol));
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
+                logger.LogInformation(
+                    "BIST AdjustedClose sync finished — attempted={A} synced={S} rows={R} failed={F}",
+                    result.Attempted, result.Synced, result.RowsUpdated, result.Failed);
+            }
+            catch (Exception ex)
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
+                logger.LogError(ex, "Background BIST AdjustedClose sync failed");
+            }
+        });
+
+        return Accepted(new
+        {
+            message = "BIST AdjustedClose sync başladı (TradingView dividends).",
             symbol,
         });
     }

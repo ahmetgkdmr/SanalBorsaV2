@@ -63,4 +63,21 @@ public interface IStockPriceHistoryRepository : IRepository<StockPriceHistory>
         DateTime fromInclusive,
         DateTime toInclusive,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Belirli hisselerin tarih aralığındaki kapanışları (StockId, Date sıralı).
+    /// </summary>
+    Task<IReadOnlyList<DailyClose>> GetDailyClosesForStockIdsAsync(
+        IReadOnlyList<int> stockIds,
+        DateTime fromInclusive,
+        DateTime toInclusive,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Belirli hissenin tüm satırlarında AdjustedClose günceller (tarih → değer).
+    /// </summary>
+    Task<int> UpdateAdjustedClosesAsync(
+        int stockId,
+        IReadOnlyDictionary<DateTime, decimal> adjustedByDate,
+        CancellationToken ct = default);
 }

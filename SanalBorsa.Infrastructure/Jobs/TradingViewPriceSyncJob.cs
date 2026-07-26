@@ -2,14 +2,14 @@ using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quartz;
+using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Her gün 19:00 Türkiye — önce metadata, sonra BIST ham günlük fiyatlar (TradingView WS).
-/// Her hisse için LatestDataDate → bugün aralığını çeker ve DB'ye yazar.
+/// Her gün 19:00 Türkiye — metadata + BIST ham Close (TV) + AdjustedClose (TV dividends).
 /// </summary>
 [DisallowConcurrentExecution]
 public class TradingViewPriceSyncJob : IJob
@@ -35,24 +35,29 @@ public class TradingViewPriceSyncJob : IJob
         try
         {
             var meta = await mediator.Send(new SyncStocksCommand(), context.CancellationToken);
-            _logger.LogInformation(
-                "Metadata sync done — updated={Updated}",
-                meta.StocksUpdated);
+            _logger.LogInformation("Metadata sync done — updated={Updated}", meta.StocksUpdated);
 
-            var result = await mediator.Send(
+            var raw = await mediator.Send(
                 new SyncBistDailyPricesCommand(),
                 context.CancellationToken);
 
             _logger.LogInformation(
-                "TradingViewPriceSyncJob done — attempted={A} synced={S} bars={B} failed={F} maxLatest={Max:yyyy-MM-dd}",
-                result.Attempted,
-                result.Synced,
-                result.BarsUpserted,
-                result.Failed,
-                result.MaxLatestDate);
+                "BIST ham Close sync — attempted={A} synced={S} bars={B} failed={F} maxLatest={Max:yyyy-MM-dd}",
+                raw.Attempted, raw.Synced, raw.BarsUpserted, raw.Failed, raw.MaxLatestDate);
 
-            if (result.Error is not null)
-                throw new JobExecutionException(new InvalidOperationException(result.Error), refireImmediately: false);
+            if (raw.Error is not null)
+                throw new JobExecutionException(new InvalidOperationException(raw.Error), refireImmediately: false);
+
+            var adj = await mediator.Send(
+                new SyncBistAdjustedClosesCommand(),
+                context.CancellationToken);
+
+            _logger.LogInformation(
+                "BIST AdjustedClose sync — attempted={A} synced={S} rows={R} failed={F}",
+                adj.Attempted, adj.Synced, adj.RowsUpdated, adj.Failed);
+
+            if (adj.Error is not null)
+                throw new JobExecutionException(new InvalidOperationException(adj.Error), refireImmediately: false);
         }
         catch (JobExecutionException)
         {

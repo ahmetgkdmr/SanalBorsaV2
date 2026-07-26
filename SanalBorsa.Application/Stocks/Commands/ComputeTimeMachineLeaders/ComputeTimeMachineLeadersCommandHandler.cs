@@ -9,27 +9,18 @@ using SanalBorsa.Domain.Interfaces;
 namespace SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
 
 /// <summary>
-/// "O gün alsaydın bugün" tablosunu üretir.
+/// "O gün alsaydın bugün" tablosu.
+/// BIST: <c>AdjustedClose</c> (TV dividends) oranı; ham Close yalnızca görüntü.
+/// Kripto / parite: ham Close oranı.
 /// </summary>
-/// <remarks>
-/// Getiri paydası sabit (bugünün kapanışı), payı ise her günün kapanışı olduğundan
-/// hisse başına geçmişe tekrar tekrar gidilmez: bitiş fiyatları tek sorguda alınır,
-/// ardından fiyat tablosu <b>tarih sırasıyla bir kez</b> taranır. Her tarih bloğu
-/// bellekte sabit boyutlu bir top-5 tamponundan geçer, yani maliyet O(satır) ve
-/// bellek O(bir günün hisse sayısı).
-/// </remarks>
 public class ComputeTimeMachineLeadersCommandHandler
     : IRequestHandler<ComputeTimeMachineLeadersCommand, ComputeTimeMachineLeadersResult>
 {
     private const int TopN = 5;
-
-    /// <summary>Fiyat tablosu bu uzunlukta dilimler hâlinde okunur (bellek sınırlı kalsın).</summary>
-    private const int ChunkYears = 3;
-
-    /// <summary>Bu tarihten önce hiçbir markette veri yok — tarama tabanı.</summary>
+    // 3 yıl × ~650 hisse × AdjustedClose sonrası tablo şişince SQL 30 sn timeout yiyordu
+    private const int ChunkYears = 1;
     private static readonly DateTime HistoryFloor = new(1985, 1, 1);
 
-    /// <summary>Stablecoin / fiat çiftleri — "en çok kazandıran" listesinde yer almasınlar.</summary>
     private static readonly HashSet<string> CryptoStableBases = new(StringComparer.OrdinalIgnoreCase)
     {
         "USDC", "FDUSD", "TUSD", "BUSD", "USDP", "DAI", "USD1", "USDE", "USDS", "USDG",
@@ -53,13 +44,11 @@ public class ComputeTimeMachineLeadersCommandHandler
         CancellationToken cancellationToken)
     {
         var total = Stopwatch.StartNew();
-
         var targets = request.Category is { } single
             ? new[] { single }
             : [TimeMachineCategory.Bist, TimeMachineCategory.Crypto, TimeMachineCategory.Parity];
 
         var results = new List<TimeMachineCategoryResult>(targets.Length);
-
         foreach (var category in targets)
         {
             results.Add(category == TimeMachineCategory.Parity
@@ -70,14 +59,13 @@ public class ComputeTimeMachineLeadersCommandHandler
         return new ComputeTimeMachineLeadersResult(results, total.ElapsedMilliseconds);
     }
 
-    // ── BIST / Kripto: günlük top-5 ──────────────────────────────────────────
-
     private async Task<TimeMachineCategoryResult> ComputeMarketAsync(
         TimeMachineCategory category,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         var market = category == TimeMachineCategory.Crypto ? MarketType.Crypto : MarketType.Bist;
+        var useAdjusted = category == TimeMachineCategory.Bist;
 
         var stocks = (await _uow.Stocks.GetAllActiveAsync(ct, market))
             .Where(s => s.MarketType == market)
@@ -95,21 +83,45 @@ public class ComputeTimeMachineLeadersCommandHandler
         var endDate = asOf.Value.Date;
         var byId = stocks.ToDictionary(s => s.Id);
 
-        // Bitiş fiyatları — tek sorgu, tüm evren için.
         var endCloses = await _uow.PriceHistories.GetClosesOnOrBeforeAsync(
             stocks.Select(s => s.Id).ToList(), endDate, ct);
 
-        // Kotasyondan çıkmış / veri akışı durmuş semboller "bugün elimde olurdu" diyemez.
         var staleCutoff = endDate.AddDays(market == MarketType.Crypto ? -3 : -10);
-        var end = new Dictionary<int, decimal>(endCloses.Count);
+
+        // Bitiş: BIST için AdjustedClose tercih (yoksa Close)
+        var endRaw = new Dictionary<int, decimal>();
+        var endRet = new Dictionary<int, decimal>();
         foreach (var (stockId, snapshot) in endCloses)
         {
-            if (snapshot.Date >= staleCutoff && snapshot.Close > 0m)
-                end[stockId] = snapshot.Close;
+            if (snapshot.Date < staleCutoff || snapshot.Close <= 0m)
+                continue;
+
+            endRaw[stockId] = snapshot.Close;
+            // GetClosesOnOrBefore only returns Close — need AdjustedClose for end.
+            // Fall back: load from a one-day scan below via first chunk, or extend GetClosesOnOrBefore.
+            endRet[stockId] = snapshot.Close;
         }
 
-        if (end.Count == 0)
+        if (endRaw.Count == 0)
             return await EmptyAsync(category, sw, "Güncel kapanışı olan enstrüman yok.", ct);
+
+        // BIST: bitiş AdjustedClose'u DailyClose tarama sonunda netleşir — önce end map'i
+        // Close ile doldurduk; ilk chunk'ta adj varsa güncellenir. Daha temiz: end date satırlarını çek.
+        if (useAdjusted)
+        {
+            var endDayBars = await _uow.PriceHistories.GetDailyClosesAsync(
+                market, endDate.AddDays(-14), endDate, ct);
+            foreach (var g in endDayBars.GroupBy(b => b.StockId))
+            {
+                var last = g.OrderByDescending(x => x.Date).First();
+                if (!endRaw.ContainsKey(last.StockId))
+                    continue;
+                var retPx = last.AdjustedClose > 0m ? last.AdjustedClose : last.Close;
+                if (retPx > 0m)
+                    endRet[last.StockId] = retPx;
+                endRaw[last.StockId] = last.Close > 0m ? last.Close : endRaw[last.StockId];
+            }
+        }
 
         var scanFrom = stocks
             .Select(s => s.EarliestDataDate)
@@ -117,7 +129,6 @@ public class ComputeTimeMachineLeadersCommandHandler
             .Select(d => d!.Value.Date)
             .DefaultIfEmpty(HistoryFloor)
             .Min();
-
         if (scanFrom < HistoryFloor)
             scanFrom = HistoryFloor;
 
@@ -143,18 +154,24 @@ public class ComputeTimeMachineLeadersCommandHandler
                 while (i < closes.Count && closes[i].Date.Date == date)
                 {
                     var row = closes[i++];
-                    if (row.Close <= 0m || !end.TryGetValue(row.StockId, out var endClose))
+                    if (!endRet.TryGetValue(row.StockId, out var endRetPx) ||
+                        !endRaw.TryGetValue(row.StockId, out var endRawPx))
+                        continue;
+
+                    var startRet = useAdjusted && row.AdjustedClose > 0m
+                        ? row.AdjustedClose
+                        : row.Close;
+                    if (startRet <= 0m || row.Close <= 0m)
                         continue;
 
                     buffer.Offer(new Candidate(
                         row.StockId,
                         byId[row.StockId].Symbol,
                         row.Close,
-                        endClose,
-                        (endClose - row.Close) / row.Close * 100m));
+                        endRawPx,
+                        (endRetPx - startRet) / startRet * 100m));
                 }
 
-                // Alım günü = bitiş günü ise getiri sıfır; anlamlı bir "alternatif" değil.
                 if (date >= endDate || buffer.Count == 0)
                     continue;
 
@@ -186,14 +203,12 @@ public class ComputeTimeMachineLeadersCommandHandler
         await _uow.TimeMachineLeaders.ReplaceCategoryAsync(category, rows, ct);
 
         _logger.LogInformation(
-            "TimeMachineLeaders {Category}: {Days} gün / {Rows} satır — evren {Universe}, bitiş {EndDate:yyyy-MM-dd}, {Elapsed} ms",
-            category, days, rows.Count, end.Count, endDate, sw.ElapsedMilliseconds);
+            "TimeMachineLeaders {Category}: {Days} gün / {Rows} satır — evren {Universe}, bitiş {EndDate:yyyy-MM-dd}, adj={Adj}, {Elapsed} ms",
+            category, days, rows.Count, endRet.Count, endDate, useAdjusted, sw.ElapsedMilliseconds);
 
         return new TimeMachineCategoryResult(
             category, days, rows.Count, earliestStart, endDate, sw.ElapsedMilliseconds, null);
     }
-
-    // ── Pariteler: her gün USD/TRY, EUR/TRY, gram altın ──────────────────────
 
     private async Task<TimeMachineCategoryResult> ComputeParityAsync(CancellationToken ct)
     {
@@ -226,8 +241,6 @@ public class ComputeTimeMachineLeadersCommandHandler
         if (tracks.Count == 0)
             return await EmptyAsync(category, sw, "Parite verisi yok.", ct);
 
-        // Gün evreni: üç serinin işlem günlerinin birleşimi. Bir parite o gün kapalıysa
-        // son kapanışı taşınır (tatilde de "o gün dolar alsaydın" cevaplanabilsin).
         var dates = new SortedSet<DateTime>();
         foreach (var track in tracks)
             foreach (var price in track.Prices)
@@ -319,7 +332,6 @@ public class ComputeTimeMachineLeadersCommandHandler
         int Rank)
     {
         public DateTime EndDate { get; } = Prices[^1].Date.Date;
-
         public decimal EndPrice { get; } = Prices[^1].Close;
     }
 
@@ -330,10 +342,6 @@ public class ComputeTimeMachineLeadersCommandHandler
         decimal EndPrice,
         decimal ReturnPct);
 
-    /// <summary>
-    /// Sabit kapasiteli, sıralı tutulan top-K tamponu. Gün başına tam sıralama yapmak
-    /// yerine O(aday × K) yerleştirme yapar ve hiç ek tahsis üretmez.
-    /// </summary>
     private sealed class TopBuffer
     {
         private readonly Candidate[] _items;

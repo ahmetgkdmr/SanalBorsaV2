@@ -20,4 +20,9 @@ public interface ICorporateActionRepository : IRepository<CorporateAction>
         int stockId,
         CorporateActionType type,
         CancellationToken ct = default);
+
+    /// <summary>Birden fazla hisse için aksiyonlar (ActionDate artan).</summary>
+    Task<IReadOnlyList<CorporateAction>> GetByStockIdsAsync(
+        IReadOnlyList<int> stockIds,
+        CancellationToken ct = default);
 }

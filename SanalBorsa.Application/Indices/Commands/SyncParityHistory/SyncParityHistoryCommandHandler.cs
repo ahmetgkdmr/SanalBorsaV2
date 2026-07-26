@@ -8,27 +8,33 @@ using SanalBorsa.Domain.Interfaces;
 namespace SanalBorsa.Application.Indices.Commands.SyncParityHistory;
 
 /// <summary>
-/// USD/TRY ve EUR/TRY doğrudan Yahoo'dan; gram altın GC=F (USD/ons) × USD/TRY ÷ 31,1034768
-/// ile türetilip aynı fiyat tablosuna yazılır. Böylece zaman makinesi ve liderlik hesabı
-/// pariteleri de sıradan bir enstrüman gibi kullanabilir.
+/// Parite geçmişi — en erken BIST tarihinden bugüne.
+/// Kaynak sırası: TCMB → TradingView → Yahoo (eksik günler birleştirilir).
+/// EUR erken dönem: EURUSD×USDTRY; altın: XAUUSD×USDTRY (veya TCMB XAU).
 /// </summary>
 public class SyncParityHistoryCommandHandler
     : IRequestHandler<SyncParityHistoryCommand, SyncParityHistoryResult>
 {
-    /// <summary>Artımlı çekimde son günleri yeniden yazmak için geriye dönük pencere.</summary>
     private const int OverlapDays = 7;
+    private static readonly DateTime HardFloor = new(1985, 1, 1);
 
     private readonly IUnitOfWork _uow;
     private readonly IYahooFinanceService _yahoo;
+    private readonly ITradingViewHistoryService _tv;
+    private readonly ITcmbFxHistoryService _tcmb;
     private readonly ILogger<SyncParityHistoryCommandHandler> _logger;
 
     public SyncParityHistoryCommandHandler(
         IUnitOfWork uow,
         IYahooFinanceService yahoo,
+        ITradingViewHistoryService tv,
+        ITcmbFxHistoryService tcmb,
         ILogger<SyncParityHistoryCommandHandler> logger)
     {
         _uow = uow;
         _yahoo = yahoo;
+        _tv = tv;
+        _tcmb = tcmb;
         _logger = logger;
     }
 
@@ -36,36 +42,70 @@ public class SyncParityHistoryCommandHandler
         SyncParityHistoryCommand request,
         CancellationToken cancellationToken)
     {
-        var details = new List<ParitySyncDetail>
-        {
-            // Gram altın USD/TRY'ye bağlı — kur önce tazelenmeli.
-            await SyncFromYahooAsync("USDTRY", request.Full, cancellationToken),
-            await SyncFromYahooAsync("EURTRY", request.Full, cancellationToken),
-        };
+        var floor = await ResolveHistoryFloorAsync(cancellationToken);
+        _logger.LogInformation(
+            "Parite sync floor={Floor:yyyy-MM-dd} full={Full} (TCMB→TV→Yahoo)",
+            floor, request.Full);
 
-        details.Add(await SyncGramGoldAsync(request.Full, cancellationToken));
+        var to = DateTime.UtcNow.Date.AddDays(1);
+        var tcmbFrom = request.Full
+            ? floor
+            : (DateTime.UtcNow.Date.AddDays(-30) < floor ? floor : DateTime.UtcNow.Date.AddDays(-30));
 
-        return new SyncParityHistoryResult(details);
-    }
-
-    private async Task<ParitySyncDetail> SyncFromYahooAsync(
-        string symbol,
-        bool full,
-        CancellationToken ct)
-    {
-        var entry = MarketInstrumentSeed.FindBySymbol(symbol);
-        if (entry is null || string.IsNullOrWhiteSpace(entry.YahooSymbol))
-            return new ParitySyncDetail(symbol, 0, null, null, "Seed kaydı yok.");
-
+        TcmbFxBundle tcmb;
         try
         {
+            tcmb = await _tcmb.GetParityBundleAsync(tcmbFrom, to, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TCMB bundle başarısız — TV/Yahoo ile devam");
+            tcmb = new TcmbFxBundle([], [], []);
+        }
+
+        var usdDetail = await SyncUsdTryAsync(floor, request.Full, tcmb.UsdTry, cancellationToken);
+        var eurDetail = await SyncEurTryAsync(floor, request.Full, tcmb.EurTry, cancellationToken);
+        var goldDetail = await SyncGramGoldAsync(floor, request.Full, tcmb.GramGold, cancellationToken);
+
+        return new SyncParityHistoryResult([usdDetail, eurDetail, goldDetail]);
+    }
+
+    private async Task<DateTime> ResolveHistoryFloorAsync(CancellationToken ct)
+    {
+        var stocks = await _uow.Stocks.GetAllActiveAsync(ct, MarketType.Bist);
+        var earliest = stocks
+            .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange))
+            .Select(s => s.EarliestDataDate)
+            .Where(d => d.HasValue)
+            .Select(d => d!.Value.Date)
+            .DefaultIfEmpty(HardFloor)
+            .Min();
+
+        return earliest < HardFloor ? HardFloor : earliest;
+    }
+
+    private async Task<ParitySyncDetail> SyncUsdTryAsync(
+        DateTime floor,
+        bool full,
+        IReadOnlyList<StockPriceHistory> tcmbUsd,
+        CancellationToken ct)
+    {
+        const string symbol = "USDTRY";
+        try
+        {
+            var entry = MarketInstrumentSeed.FindBySymbol(symbol)!;
             var stock = await EnsureStockAsync(entry, ct);
-            var from = ResolveFrom(stock, full);
+            var from = ResolveFrom(stock, floor, full);
+            var to = DateTime.UtcNow.Date.AddDays(1);
 
-            var bars = await _yahoo.GetPriceHistoryAsync(
-                entry.YahooSymbol, from, DateTime.UtcNow.AddDays(1), ct);
+            var merged = new Dictionary<DateTime, StockPriceHistory>();
+            MergeInto(merged, tcmbUsd.Where(b => b.Date >= from).ToList(), prefer: true);
+            MergeInto(merged, await _tv.GetDailyBarsByTvSymbolAsync(
+                MarketInstrumentSeed.UsdTryTvSymbol, from, to, ct), prefer: false);
+            if (merged.Count == 0 || NeedsMoreHistory(merged, from))
+                MergeInto(merged, await SafeYahooAsync(entry.YahooSymbol, from, to, ct), prefer: false);
 
-            return await WriteBarsAsync(stock, bars, ct);
+            return await WriteBarsAsync(stock, merged.Values.OrderBy(b => b.Date).ToList(), ct);
         }
         catch (Exception ex)
         {
@@ -74,7 +114,55 @@ public class SyncParityHistoryCommandHandler
         }
     }
 
-    private async Task<ParitySyncDetail> SyncGramGoldAsync(bool full, CancellationToken ct)
+    private async Task<ParitySyncDetail> SyncEurTryAsync(
+        DateTime floor,
+        bool full,
+        IReadOnlyList<StockPriceHistory> tcmbEur,
+        CancellationToken ct)
+    {
+        const string symbol = "EURTRY";
+        try
+        {
+            var entry = MarketInstrumentSeed.FindBySymbol(symbol)!;
+            var stock = await EnsureStockAsync(entry, ct);
+            var from = ResolveFrom(stock, floor, full);
+            var to = DateTime.UtcNow.Date.AddDays(1);
+
+            var merged = new Dictionary<DateTime, StockPriceHistory>();
+            MergeInto(merged, tcmbEur.Where(b => b.Date >= from).ToList(), prefer: true);
+            MergeInto(merged, await _tv.GetDailyBarsByTvSymbolAsync(
+                MarketInstrumentSeed.EurTryTvSymbol, from, to, ct), prefer: false);
+
+            var usd = await _uow.Stocks.GetBySymbolAsync("USDTRY", ct);
+            if (usd is not null)
+            {
+                var eurusd = await _tv.GetDailyBarsByTvSymbolAsync(
+                    MarketInstrumentSeed.EurUsdTvSymbol, from, to, ct);
+                if (eurusd.Count > 0)
+                {
+                    var rates = await _uow.PriceHistories.GetByStockIdAsync(
+                        usd.Id, from: from.AddDays(-60), ct: ct);
+                    MergeInto(merged, MultiplyFx(eurusd, rates, decimals: 4), prefer: false);
+                }
+            }
+
+            if (NeedsMoreHistory(merged, from))
+                MergeInto(merged, await SafeYahooAsync(entry.YahooSymbol, from, to, ct), prefer: false);
+
+            return await WriteBarsAsync(stock, merged.Values.OrderBy(b => b.Date).ToList(), ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Parite senkronu başarısız: {Symbol}", symbol);
+            return new ParitySyncDetail(symbol, 0, null, null, ex.Message);
+        }
+    }
+
+    private async Task<ParitySyncDetail> SyncGramGoldAsync(
+        DateTime floor,
+        bool full,
+        IReadOnlyList<StockPriceHistory> tcmbGold,
+        CancellationToken ct)
     {
         const string symbol = "GRAMALTIN";
         var entry = MarketInstrumentSeed.FindBySymbol(symbol);
@@ -84,28 +172,32 @@ public class SyncParityHistoryCommandHandler
         try
         {
             var stock = await EnsureStockAsync(entry, ct);
-
             var usd = await _uow.Stocks.GetBySymbolAsync("USDTRY", ct);
             if (usd is null)
                 return new ParitySyncDetail(symbol, 0, null, null, "USDTRY enstrümanı yok.");
 
-            var from = ResolveFrom(stock, full);
+            var from = ResolveFrom(stock, floor, full);
+            var to = DateTime.UtcNow.Date.AddDays(1);
+            var merged = new Dictionary<DateTime, StockPriceHistory>();
 
-            var ounce = await _yahoo.GetPriceHistoryAsync(
-                MarketInstrumentSeed.GoldOunceYahooSymbol, from, DateTime.UtcNow.AddDays(1), ct);
+            MergeInto(merged, tcmbGold.Where(b => b.Date >= from).ToList(), prefer: true);
 
+            var ounce = await _tv.GetDailyBarsByTvSymbolAsync(
+                MarketInstrumentSeed.XauUsdTvSymbol, from, to, ct);
             if (ounce.Count == 0)
-                return new ParitySyncDetail(symbol, 0, null, null, "GC=F verisi boş döndü.");
+                ounce = await SafeYahooAsync(MarketInstrumentSeed.GoldOunceYahooSymbol, from, to, ct);
 
-            // Kur serisi ons serisinden en az bir ay önce başlasın; tatil günlerinde son kur taşınır.
-            var rates = await _uow.PriceHistories.GetByStockIdAsync(
-                usd.Id, from: ounce[0].Date.AddDays(-45), ct: ct);
+            if (ounce.Count > 0)
+            {
+                var rates = await _uow.PriceHistories.GetByStockIdAsync(
+                    usd.Id, from: from.AddDays(-45), ct: ct);
+                MergeInto(merged, MultiplyFx(ounce, rates, decimals: 2, divideByGrams: true), prefer: false);
+            }
 
-            var bars = DeriveGramGold(ounce, rates);
-            if (bars.Count == 0)
-                return new ParitySyncDetail(symbol, 0, null, null, "Eşleşen USD/TRY kuru bulunamadı.");
+            if (merged.Count == 0)
+                return new ParitySyncDetail(symbol, 0, null, null, "Altın verisi hiçbir kaynaktan gelmedi.");
 
-            return await WriteBarsAsync(stock, bars, ct);
+            return await WriteBarsAsync(stock, merged.Values.OrderBy(b => b.Date).ToList(), ct);
         }
         catch (Exception ex)
         {
@@ -114,36 +206,73 @@ public class SyncParityHistoryCommandHandler
         }
     }
 
-    /// <summary>Ons/USD barlarını, o güne kadarki son USD/TRY kuruyla gram/TL'ye çevirir.</summary>
-    private static List<StockPriceHistory> DeriveGramGold(
-        IReadOnlyList<StockPriceHistory> ounceBars,
-        IReadOnlyList<StockPriceHistory> usdRates)
+    private async Task<IReadOnlyList<StockPriceHistory>> SafeYahooAsync(
+        string yahooSymbol, DateTime from, DateTime to, CancellationToken ct)
     {
-        var ordered = ounceBars.OrderBy(b => b.Date).ToList();
+        try
+        {
+            return await _yahoo.GetPriceHistoryAsync(yahooSymbol, from, to, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Yahoo {Symbol} başarısız", yahooSymbol);
+            return [];
+        }
+    }
+
+    /// <summary>prefer=true olan kaynak mevcut günü ezer (TCMB öncelikli).</summary>
+    private static void MergeInto(
+        Dictionary<DateTime, StockPriceHistory> target,
+        IReadOnlyList<StockPriceHistory> bars,
+        bool prefer)
+    {
+        foreach (var bar in bars)
+        {
+            var d = bar.Date.Date;
+            if (prefer || !target.ContainsKey(d))
+                target[d] = bar;
+        }
+    }
+
+    private static bool NeedsMoreHistory(Dictionary<DateTime, StockPriceHistory> merged, DateTime floor)
+    {
+        if (merged.Count == 0) return true;
+        var earliest = merged.Keys.Min();
+        return earliest > floor.AddDays(30);
+    }
+
+    private static List<StockPriceHistory> MultiplyFx(
+        IReadOnlyList<StockPriceHistory> foreignUsdBars,
+        IReadOnlyList<StockPriceHistory> usdTryRates,
+        int decimals,
+        bool divideByGrams = false)
+    {
+        var ordered = foreignUsdBars.OrderBy(b => b.Date).ToList();
         var bars = new List<StockPriceHistory>(ordered.Count);
         var now = DateTime.UtcNow;
-
         var rateIdx = 0;
         decimal? rate = null;
 
         foreach (var bar in ordered)
         {
-            while (rateIdx < usdRates.Count && usdRates[rateIdx].Date.Date <= bar.Date.Date)
-                rate = usdRates[rateIdx++].Close;
+            while (rateIdx < usdTryRates.Count && usdTryRates[rateIdx].Date.Date <= bar.Date.Date)
+                rate = usdTryRates[rateIdx++].Close;
 
             if (rate is null || rate.Value <= 0m || bar.Close <= 0m)
                 continue;
 
-            var factor = rate.Value / MarketInstrumentSeed.GramsPerTroyOunce;
+            var factor = divideByGrams
+                ? rate.Value / MarketInstrumentSeed.GramsPerTroyOunce
+                : rate.Value;
 
             bars.Add(new StockPriceHistory
             {
                 Date = bar.Date.Date,
-                Open = Math.Round(bar.Open * factor, 4),
-                High = Math.Round(bar.High * factor, 4),
-                Low = Math.Round(bar.Low * factor, 4),
-                Close = Math.Round(bar.Close * factor, 4),
-                AdjustedClose = Math.Round(bar.Close * factor, 4),
+                Open = Math.Round(bar.Open * factor, decimals),
+                High = Math.Round(bar.High * factor, decimals),
+                Low = Math.Round(bar.Low * factor, decimals),
+                Close = Math.Round(bar.Close * factor, decimals),
+                AdjustedClose = Math.Round(bar.Close * factor, decimals),
                 Volume = 0,
                 CreatedAt = now,
             });
@@ -163,7 +292,6 @@ public class SyncParityHistoryCommandHandler
                 stock.Symbol, 0, stock.EarliestDataDate, stock.LatestDataDate, "Veri gelmedi.");
         }
 
-        // Sadece gelen aralık silinir; USD/TRY'nin TradingView'dan gelen 1989+ geçmişi korunur.
         var rangeFrom = bars.Min(b => b.Date).Date;
         var rangeTo = bars.Max(b => b.Date).Date;
 
@@ -185,17 +313,22 @@ public class SyncParityHistoryCommandHandler
         await _uow.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "Parite {Symbol}: {Rows} satır yazıldı ({From:yyyy-MM-dd} → {To:yyyy-MM-dd}), seri {Earliest:yyyy-MM-dd} → {Latest:yyyy-MM-dd}",
+            "Parite {Symbol}: {Rows} satır ({From:yyyy-MM-dd} → {To:yyyy-MM-dd}), seri {Earliest:yyyy-MM-dd} → {Latest:yyyy-MM-dd}",
             stock.Symbol, bars.Count, rangeFrom, rangeTo, stock.EarliestDataDate, stock.LatestDataDate);
 
         return new ParitySyncDetail(
             stock.Symbol, bars.Count, stock.EarliestDataDate, stock.LatestDataDate, null);
     }
 
-    private static DateTime ResolveFrom(Stock stock, bool full)
-        => full || stock.LatestDataDate is null
-            ? DateTime.UnixEpoch
-            : stock.LatestDataDate.Value.AddDays(-OverlapDays);
+    private static DateTime ResolveFrom(Stock stock, DateTime floor, bool full)
+    {
+        if (full || stock.LatestDataDate is null || stock.EarliestDataDate is null
+            || stock.EarliestDataDate.Value.Date > floor)
+            return floor;
+
+        var incremental = stock.LatestDataDate.Value.AddDays(-OverlapDays);
+        return incremental < floor ? floor : incremental;
+    }
 
     private async Task<Stock> EnsureStockAsync(MarketInstrumentEntry entry, CancellationToken ct)
     {
@@ -219,7 +352,6 @@ public class SyncParityHistoryCommandHandler
 
         await _uow.Stocks.AddAsync(stock, ct);
         await _uow.SaveChangesAsync(ct);
-
         _logger.LogInformation("Parite enstrümanı oluşturuldu: {Symbol}", entry.Symbol);
         return stock;
     }

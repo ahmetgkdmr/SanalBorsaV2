@@ -17,7 +17,8 @@ Desen: **Clean Architecture + CQRS (MediatR)**.
 
 | Veri | Kaynak | Not |
 |------|--------|-----|
-| BIST günlük **ham** OHLCV | TradingView WebSocket (`adjustment=none`) | Zaman makinesi corp-action’ı ayrıca uygular |
+| BIST günlük **ham** OHLCV | TradingView WebSocket (`adjustment=none`) → `Close` | Zaman makinesi ham + corp-action |
+| BIST **AdjustedClose** | TradingView (`adjustment=dividends`) | Aynı satırda UPDATE; Close dokunulmaz |
 | BIST metadata | Yahoo / KAP seed | `SyncStocksCommand` |
 | Corporate actions | Gece KAP; full bootstrap İş Yatırım | |
 | Kripto günlük | Binance kline | Canlı: Binance miniTicker + SignalR |
@@ -29,11 +30,11 @@ Python `sync.py` / `TvSync` **yok** — tamamen .NET.
 
 | Saat (TR) | Job | Ne yapar |
 |-----------|-----|----------|
-| **19:00** | `TradingViewPriceSyncJob` | Metadata + BIST ham fiyat (`LatestDataDate` → bugün) |
+| **19:00** | `TradingViewPriceSyncJob` | Metadata + BIST ham Close + AdjustedClose (TV) |
 | **23:00** | `CorporateActionSyncJob` | KAP incremental bedelli/bedelsiz/temettü |
 | **23:05** | `TopGainersJob` | BIST + Crypto dönem şampiyonları |
 | **04:30** | `CryptoHistorySyncJob` | Binance USDT günlük kline |
-| **05:30** | `TimeMachineLeadersJob` | Parite sync + “o gün alsaydın” lider tablosu |
+| **05:30** | `TimeMachineLeadersJob` | Parite sync + “o gün alsaydın” lider tablosu (BIST: corp-action’lı getiri) |
 
 Startup: `InitialDataSeedService` — boş/stale DB catch-up; günlük loop yok.
 
@@ -52,7 +53,8 @@ Startup: `InitialDataSeedService` — boş/stale DB catch-up; günlük loop yok.
 1. Fiyatlar DB’de **ham** tutulur.
 2. Getiri hesaplanırken corporate action (temettü, bedelsiz, bedelli) uygulanır.
 3. Lider tablosu (`TimeMachineLeader`) her gece yeniden üretilir — “bugün” kaydığı için sıralama değişir.
-4. Kategoriler: BIST top-5, Crypto top-5, Parite (USDTRY, EURTRY, GRAMALTIN).
+4. BIST lider getirisi `AdjustedClose` (TV) oranıdır; listedeki Start/End fiyatları ham `Close`.
+5. Kategoriler: BIST top-5, Crypto top-5, Parite (USDTRY, EURTRY, GRAMALTIN).
 
 ## Önemli dosyalar
 

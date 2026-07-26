@@ -38,15 +38,21 @@ public static class MarketInstrumentSeed
         // ── Döviz & değerli maden (TL bazlı pariteler) ───────────────────
         new("USDTRY",    "TRY=X",    "USD/TRY Döviz Kuru",  "USD/TRY",    "FX", "TRY", 4),
         new("EURTRY",    "EURTRY=X", "EUR/TRY Döviz Kuru",  "EUR/TRY",    "FX", "TRY", 4),
-        // GC=F (USD/ons) × USDTRY ÷ 31,1034768 ile türetilir — Yahoo'da doğrudan TL karşılığı yok.
+        // GC=F / TV XAUUSD × USDTRY ÷ 31,1034768 ile türetilir.
         new("GRAMALTIN", "",         "Gram Altın (TL)",     "GRAM ALTIN", "FX", "TRY", 2),
     ];
 
     /// <summary>Zaman makinesinde hisseye alternatif gösterilen TL pariteleri (sıra = gösterim sırası).</summary>
     public static readonly IReadOnlyList<string> ParitySymbols = ["USDTRY", "EURTRY", "GRAMALTIN"];
 
-    /// <summary>Yahoo'dan çekilen ons altın kaynağı; TL gram fiyatı buradan türetilir.</summary>
+    /// <summary>Yahoo'dan çekilen ons altın kaynağı; TL gram fiyatı buradan türetilir (yedek).</summary>
     public const string GoldOunceYahooSymbol = "GC=F";
+
+    /// <summary>TradingView FX / metal sembolleri.</summary>
+    public const string UsdTryTvSymbol = "FX_IDC:USDTRY";
+    public const string EurTryTvSymbol = "FX_IDC:EURTRY";
+    public const string EurUsdTvSymbol = "FX_IDC:EURUSD";
+    public const string XauUsdTvSymbol = "FX_IDC:XAUUSD";
 
     /// <summary>1 troy ons = 31,1034768 gram.</summary>
     public const decimal GramsPerTroyOunce = 31.1034768m;

@@ -237,16 +237,89 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         var rangeStart = fromInclusive.Date;
         var rangeEnd = toInclusive.Date;
 
-        var query =
-            from p in DbSet.AsNoTracking()
-            join s in Context.Set<Stock>().AsNoTracking() on p.StockId equals s.Id
-            where s.MarketType == marketType
-                  && s.IsActive
-                  && p.Date >= rangeStart
-                  && p.Date <= rangeEnd
-            orderby p.Date
-            select new DailyClose(p.StockId, p.Date, p.Close);
+        // BIST tüm hisse × yıllarca günlük bar — default 30 sn yetmez
+        var previousTimeout = Context.Database.GetCommandTimeout();
+        Context.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+        try
+        {
+            var query =
+                from p in DbSet.AsNoTracking()
+                join s in Context.Set<Stock>().AsNoTracking() on p.StockId equals s.Id
+                where s.MarketType == marketType
+                      && s.IsActive
+                      && p.Date >= rangeStart
+                      && p.Date <= rangeEnd
+                orderby p.Date
+                select new DailyClose(p.StockId, p.Date, p.Close, p.AdjustedClose);
 
-        return await query.ToListAsync(ct);
+            return await query.ToListAsync(ct);
+        }
+        finally
+        {
+            Context.Database.SetCommandTimeout(previousTimeout);
+        }
+    }
+
+    public async Task<IReadOnlyList<DailyClose>> GetDailyClosesForStockIdsAsync(
+        IReadOnlyList<int> stockIds,
+        DateTime fromInclusive,
+        DateTime toInclusive,
+        CancellationToken ct = default)
+    {
+        if (stockIds.Count == 0)
+            return [];
+
+        var rangeStart = fromInclusive.Date;
+        var rangeEnd = toInclusive.Date;
+        const int batchSize = 150;
+        var all = new List<DailyClose>();
+
+        for (var i = 0; i < stockIds.Count; i += batchSize)
+        {
+            var batch = stockIds.Skip(i).Take(batchSize).ToList();
+            var rows = await DbSet.AsNoTracking()
+                .Where(p => batch.Contains(p.StockId)
+                            && p.Date >= rangeStart
+                            && p.Date <= rangeEnd)
+                .OrderBy(p => p.StockId)
+                .ThenBy(p => p.Date)
+                .Select(p => new DailyClose(p.StockId, p.Date, p.Close, p.AdjustedClose))
+                .ToListAsync(ct);
+            all.AddRange(rows);
+        }
+
+        return all;
+    }
+
+    public async Task<int> UpdateAdjustedClosesAsync(
+        int stockId,
+        IReadOnlyDictionary<DateTime, decimal> adjustedByDate,
+        CancellationToken ct = default)
+    {
+        if (adjustedByDate.Count == 0)
+            return 0;
+
+        var rows = await DbSet
+            .Where(p => p.StockId == stockId)
+            .ToListAsync(ct);
+
+        var updated = 0;
+        foreach (var row in rows)
+        {
+            if (!adjustedByDate.TryGetValue(row.Date.Date, out var adj))
+                continue;
+
+            adj = Math.Round(adj, 4);
+            if (row.AdjustedClose == adj)
+                continue;
+
+            row.AdjustedClose = adj;
+            updated++;
+        }
+
+        if (updated > 0)
+            await Context.SaveChangesAsync(ct);
+
+        return updated;
     }
 }

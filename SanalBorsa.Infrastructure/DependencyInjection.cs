@@ -14,6 +14,7 @@ using SanalBorsa.Infrastructure.ExternalServices.Coinbase;
 using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
 using SanalBorsa.Infrastructure.ExternalServices.Zorinaq;
 using SanalBorsa.Infrastructure.ExternalServices.Kap;
+using SanalBorsa.Infrastructure.ExternalServices.Tcmb;
 using SanalBorsa.Infrastructure.ExternalServices.TradingView;
 using SanalBorsa.Infrastructure.ExternalServices.YahooFinance;
 using SanalBorsa.Infrastructure.Jobs;
@@ -30,10 +31,14 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(options =>
             options.UseSqlServer(
                 configuration.GetConnectionString("DefaultConnection"),
-                sql => sql.EnableRetryOnFailure(
-                    maxRetryCount: 5,
-                    maxRetryDelay: TimeSpan.FromSeconds(30),
-                    errorNumbersToAdd: null)));
+                sql =>
+                {
+                    sql.CommandTimeout(600); // leaders / bulk fiyat sorguları
+                    sql.EnableRetryOnFailure(
+                        maxRetryCount: 5,
+                        maxRetryDelay: TimeSpan.FromSeconds(30),
+                        errorNumbersToAdd: null);
+                }));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddMemoryCache();
@@ -128,7 +133,19 @@ public static class DependencyInjection
 
         // ── TradingView WebSocket + BIST ham fiyat (Python sync.py yerine) ───
         services.AddScoped<TradingViewHistoryClient>();
+        services.AddScoped<ITradingViewHistoryService>(sp => sp.GetRequiredService<TradingViewHistoryClient>());
         services.AddScoped<IBistRawPriceService, BistRawPriceService>();
+
+        services.AddHttpClient("Tcmb", client =>
+        {
+            client.BaseAddress = new Uri("https://www.tcmb.gov.tr/");
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/xml,text/xml,*/*");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddScoped<ITcmbFxHistoryService, TcmbFxHistoryService>();
 
         services.AddHttpClient("Kap", client =>
         {

@@ -1,5 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Indices.Commands.SyncParityHistory;
 using SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
@@ -39,14 +41,47 @@ public class TimeMachineController : ControllerBase
 
     /// <summary>
     /// Liderlik tablosunu yeniden hesaplar (manuel tetik). category=all|bist|crypto|parity.
-    /// Gece işi bunu zaten çalıştırır; buradaki uç nokta geliştirme / ilk dolum içindir.
+    /// Uzun sürdüğü için arka planda çalışır.
     /// </summary>
     [HttpPost("leaders/compute")]
-    [ProducesResponseType(typeof(ComputeTimeMachineLeadersResult), StatusCodes.Status200OK)]
-    public async Task<IActionResult> Compute(
-        [FromQuery] string category = "all",
-        CancellationToken ct = default)
-        => Ok(await _mediator.Send(new ComputeTimeMachineLeadersCommand(ParseCategory(category)), ct));
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public IActionResult Compute(
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromQuery] string category = "all")
+    {
+        var parsed = ParseCategory(category);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<TimeMachineController>>();
+                var result = await mediator.Send(new ComputeTimeMachineLeadersCommand(parsed));
+                logger.LogInformation(
+                    "TimeMachine leaders compute finished — {Ms} ms, categories={Count}",
+                    result.ElapsedMs, result.Categories.Count);
+                foreach (var c in result.Categories)
+                {
+                    logger.LogInformation(
+                        "  {Category}: days={Days} rows={Rows} err={Err}",
+                        c.Category, c.Days, c.Rows, c.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<TimeMachineController>>();
+                logger.LogError(ex, "Background time-machine leaders compute failed");
+            }
+        });
+
+        return Accepted(new
+        {
+            message = "Time-machine leaders compute started in background.",
+            category,
+        });
+    }
 
     /// <summary>
     /// USD/TRY, EUR/TRY ve gram altın fiyat geçmişini tazeler. full=true seriyi baştan çeker.

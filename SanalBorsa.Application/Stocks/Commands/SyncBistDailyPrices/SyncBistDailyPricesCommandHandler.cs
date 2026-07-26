@@ -99,8 +99,9 @@ public class SyncBistDailyPricesCommandHandler
                 {
                     bar.StockId = stock.Id;
                     bar.CreatedAt = now;
-                    // Ham seri: adjusted = close
-                    bar.AdjustedClose = bar.Close;
+                    // Placeholder — AdjustedClose TV sync ayrı komutla doldurulur
+                    if (bar.AdjustedClose <= 0)
+                        bar.AdjustedClose = bar.Close;
                 }
 
                 await _uow.PriceHistories.BulkInsertAsync(history, cancellationToken);

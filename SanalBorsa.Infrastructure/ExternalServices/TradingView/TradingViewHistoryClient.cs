@@ -5,20 +5,22 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Entities;
 
 namespace SanalBorsa.Infrastructure.ExternalServices.TradingView;
 
 /// <summary>
 /// TradingView WebSocket history (tvDatafeed protokolü).
-/// UDF HTTP host'ları yerine <c>wss://data.tradingview.com</c>;
-/// <c>adjustment=none</c> → ham OHLCV.
+/// <c>adjustment=none</c> → ham OHLCV; <c>dividends</c> → AdjustedClose.
 /// </summary>
-public sealed class TradingViewHistoryClient : IAsyncDisposable
+public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyncDisposable
 {
     private const string WsUrl = "wss://data.tradingview.com/socket.io/websocket";
     private const string AuthToken = "unauthorized_user_token";
     private const int MaxBars = 10_000;
+    private const int MoreBarsChunk = 5_000;
+    private const int MaxMoreRequests = 80;
     private const int ReceiveBufferSize = 1 << 16;
 
     private static readonly Regex HeartbeatRx = new(
@@ -44,13 +46,53 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<StockPriceHistory>> GetDailyBarsAsync(
+    public Task<IReadOnlyList<StockPriceHistory>> GetBistDailyBarsAsync(
+        string bistSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+        => GetDailyBarsByTvSymbolAsync($"BIST:{bistSymbol.Trim().ToUpperInvariant()}", from, to, ct);
+
+    public async Task<IReadOnlyDictionary<DateTime, decimal>> GetBistAdjustedClosesAsync(
         string bistSymbol,
         DateTime from,
         DateTime to,
         CancellationToken ct = default)
     {
-        var symbol = $"BIST:{bistSymbol.Trim().ToUpperInvariant()}";
+        var bars = await FetchBarsAsync(
+            $"BIST:{bistSymbol.Trim().ToUpperInvariant()}", from, to, adjustment: "dividends", ct);
+        return bars.ToDictionary(b => b.Date.Date, b => b.Close);
+    }
+
+    /// <summary>Geriye uyumluluk — BIST ham.</summary>
+    public Task<IReadOnlyList<StockPriceHistory>> GetDailyBarsAsync(
+        string bistSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+        => GetBistDailyBarsAsync(bistSymbol, from, to, ct);
+
+    public async Task<IReadOnlyDictionary<DateTime, decimal>> GetAdjustedClosesAsync(
+        string bistSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+        => await GetBistAdjustedClosesAsync(bistSymbol, from, to, ct);
+
+    public Task<IReadOnlyList<StockPriceHistory>> GetDailyBarsByTvSymbolAsync(
+        string tvSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+        => FetchBarsAsync(tvSymbol.Trim(), from, to, adjustment: "none", ct);
+
+    private async Task<IReadOnlyList<StockPriceHistory>> FetchBarsAsync(
+        string symbol,
+        DateTime from,
+        DateTime to,
+        string adjustment,
+        CancellationToken ct)
+    {
         var fromDate = from.Date;
         var toDate = to.Date;
         if (fromDate > toDate)
@@ -66,76 +108,45 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         {
             await EnsureConnectedAsync(ct);
 
-            // Her istekte yeni chart session — aynı WS üzerinde ikinci create_series
-            // önceki seriyi bozuyor / cevap gelmiyor.
-            var seq = Interlocked.Increment(ref _symbolSeq);
-            _chartSession = "cs_" + Guid.NewGuid().ToString("N")[..12];
-            var symId = $"sds_sym_{seq}";
-            var seriesId = $"sds_{seq}";
-            var seriesName = $"s{seq}";
-
-            while (_inbox.TryDequeue(out _)) { }
-
-            await SendAsync("chart_create_session", [_chartSession, ""], ct);
-
-            var resolveArg =
-                "={\"symbol\":\"" + symbol + "\",\"adjustment\":\"none\",\"session\":\"regular\"}";
-
-            await SendAsync("resolve_symbol", [_chartSession, symId, resolveArg], ct);
-            await SendAsync("create_series",
-                [_chartSession, seriesId, seriesName, symId, "1D", nBars, ""], ct);
-
-            var raw = await WaitForSeriesAsync(TimeSpan.FromSeconds(20), ct);
+            var raw = await RequestSeriesWithHistoryAsync(symbol, adjustment, nBars, fromDate, ct);
             if (string.IsNullOrEmpty(raw) ||
                 raw.Contains("symbol_error", StringComparison.Ordinal) ||
                 raw.Contains("series_error", StringComparison.Ordinal))
             {
-                // Bir kez yeniden bağlanıp dene
-                _logger.LogDebug("TV WS: {Symbol} ilk deneme boş/hata — reconnect", symbol);
+                _logger.LogDebug(
+                    "TV WS: {Symbol} adj={Adj} ilk deneme boş/hata — reconnect",
+                    symbol, adjustment);
                 await TryReconnectAsync(CancellationToken.None);
                 await EnsureConnectedAsync(ct);
-
-                seq = Interlocked.Increment(ref _symbolSeq);
-                _chartSession = "cs_" + Guid.NewGuid().ToString("N")[..12];
-                symId = $"sds_sym_{seq}";
-                seriesId = $"sds_{seq}";
-                seriesName = $"s{seq}";
-                while (_inbox.TryDequeue(out _)) { }
-
-                await SendAsync("chart_create_session", [_chartSession, ""], ct);
-                await SendAsync("resolve_symbol", [_chartSession, symId, resolveArg], ct);
-                await SendAsync("create_series",
-                    [_chartSession, seriesId, seriesName, symId, "1D", nBars, ""], ct);
-
-                raw = await WaitForSeriesAsync(TimeSpan.FromSeconds(20), ct);
+                raw = await RequestSeriesWithHistoryAsync(symbol, adjustment, nBars, fromDate, ct);
             }
 
             if (string.IsNullOrEmpty(raw))
             {
-                _logger.LogWarning("TV WS: {Symbol} series timeout/empty", symbol);
+                _logger.LogWarning("TV WS: {Symbol} adj={Adj} timeout/empty", symbol, adjustment);
                 return [];
             }
 
             if (raw.Contains("symbol_error", StringComparison.Ordinal) ||
                 raw.Contains("series_error", StringComparison.Ordinal))
             {
-                _logger.LogDebug("TV WS: {Symbol} resolve/series error", symbol);
+                _logger.LogDebug("TV WS: {Symbol} adj={Adj} resolve/series error", symbol, adjustment);
                 return [];
             }
 
             var bars = ParseBars(raw, fromDate, toDate);
             if (bars.Count > 0)
             {
-                _logger.LogDebug(
-                    "TV WS: {Symbol} {Count} bars ({From:yyyy-MM-dd} → {To:yyyy-MM-dd})",
-                    symbol, bars.Count, bars[0].Date, bars[^1].Date);
+                _logger.LogInformation(
+                    "TV WS: {Symbol} adj={Adj} {Count} bars ({From:yyyy-MM-dd} → {To:yyyy-MM-dd})",
+                    symbol, adjustment, bars.Count, bars[0].Date, bars[^1].Date);
             }
 
             return bars;
         }
         catch (Exception ex) when (ex is WebSocketException or IOException)
         {
-            _logger.LogWarning(ex, "TV WS failed for {Symbol} — reconnect", symbol);
+            _logger.LogWarning(ex, "TV WS failed for {Symbol} adj={Adj}", symbol, adjustment);
             await TryReconnectAsync(CancellationToken.None);
             return [];
         }
@@ -143,6 +154,79 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// İlk seriyi çeker; <paramref name="fromDate"/> kapsanana kadar <c>request_more_data</c> ile geriye kayar.
+    /// </summary>
+    private async Task<string?> RequestSeriesWithHistoryAsync(
+        string symbol,
+        string adjustment,
+        int nBars,
+        DateTime fromDate,
+        CancellationToken ct)
+    {
+        var seq = Interlocked.Increment(ref _symbolSeq);
+        _chartSession = "cs_" + Guid.NewGuid().ToString("N")[..12];
+        var symId = $"sds_sym_{seq}";
+        var seriesId = $"sds_{seq}";
+        var seriesName = $"s{seq}";
+
+        while (_inbox.TryDequeue(out _)) { }
+
+        await SendAsync("chart_create_session", [_chartSession, ""], ct);
+
+        var resolveArg =
+            "={\"symbol\":\"" + symbol + "\",\"adjustment\":\"" + adjustment + "\",\"session\":\"regular\"}";
+
+        await SendAsync("resolve_symbol", [_chartSession, symId, resolveArg], ct);
+        await SendAsync("create_series",
+            [_chartSession, seriesId, seriesName, symId, "1D", nBars, ""], ct);
+
+        var acc = new StringBuilder();
+        var first = await WaitForSeriesAsync(TimeSpan.FromSeconds(25), ct);
+        if (string.IsNullOrEmpty(first))
+            return null;
+
+        acc.Append(first);
+        if (first.Contains("symbol_error", StringComparison.Ordinal) ||
+            first.Contains("series_error", StringComparison.Ordinal))
+            return acc.ToString();
+
+        for (var i = 0; i < MaxMoreRequests; i++)
+        {
+            var earliest = EarliestBarDate(acc.ToString());
+            if (earliest is null || earliest.Value <= fromDate)
+                break;
+
+            var beforeCount = BarRx.Matches(acc.ToString()).Count;
+            await SendAsync("request_more_data", [_chartSession, seriesId, MoreBarsChunk], ct);
+            var more = await WaitForSeriesAsync(TimeSpan.FromSeconds(20), ct);
+            if (string.IsNullOrEmpty(more))
+                break;
+
+            acc.Append(more);
+            var afterCount = BarRx.Matches(acc.ToString()).Count;
+            if (afterCount <= beforeCount)
+                break;
+        }
+
+        return acc.ToString();
+    }
+
+    private static DateTime? EarliestBarDate(string raw)
+    {
+        DateTime? min = null;
+        foreach (Match m in BarRx.Matches(raw))
+        {
+            if (!TryParseInv(m.Groups[1].Value, out var ts))
+                continue;
+            var date = DateTimeOffset.FromUnixTimeSeconds((long)ts).UtcDateTime.Date;
+            if (min is null || date < min)
+                min = date;
+        }
+
+        return min;
     }
 
     private async Task EnsureConnectedAsync(CancellationToken ct)
@@ -168,8 +252,6 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         _receiveLoop = Task.Run(() => ReceiveLoopAsync(_receiveCts.Token));
 
         await SendAsync("set_auth_token", [AuthToken], ct);
-        // chart_create_session her GetDailyBars çağrısında yenilenir
-
         _logger.LogInformation("TradingView WebSocket bağlandı");
     }
 
@@ -215,14 +297,13 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
                     {
                         try
                         {
-                            // Echo heartbeat as a framed message
                             var framed = $"~m~{payload.Length}~m~{payload}";
                             var bytes = Encoding.UTF8.GetBytes(framed);
                             await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
                         }
                         catch
                         {
-                            // outer call reconnects
+                            // outer reconnect
                         }
 
                         continue;
@@ -242,9 +323,6 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// ~m~{len}~m~{payload} frame'lerini ayırır; tamamlanmamış kuyruğu leftover olarak döner.
-    /// </summary>
     private static string DrainFrames(string text, out List<string> payloads)
     {
         payloads = [];
@@ -253,7 +331,6 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
         {
             if (i + 3 > text.Length || text[i] != '~' || text[i + 1] != 'm' || text[i + 2] != '~')
             {
-                // Senkron kayması — bir sonraki ~m~ ara
                 var next = text.IndexOf("~m~", i + 1, StringComparison.Ordinal);
                 if (next < 0)
                     return text[i..];
@@ -309,9 +386,8 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
                     barsSeenAt ??= DateTime.UtcNow;
             }
 
-            // series_completed gelmezse bar'lardan sonra kısa settle bekle
             if (barsSeenAt is not null &&
-                DateTime.UtcNow - barsSeenAt.Value >= TimeSpan.FromMilliseconds(700))
+                DateTime.UtcNow - barsSeenAt.Value >= TimeSpan.FromMilliseconds(1200))
             {
                 return acc.ToString();
             }
@@ -367,14 +443,15 @@ public sealed class TradingViewHistoryClient : IAsyncDisposable
             if (!seen.Add(date))
                 continue;
 
+            var c = Math.Round((decimal)close, 4);
             list.Add(new StockPriceHistory
             {
                 Date = date,
                 Open = Math.Round((decimal)open, 4),
                 High = Math.Round((decimal)high, 4),
                 Low = Math.Round((decimal)low, 4),
-                Close = Math.Round((decimal)close, 4),
-                AdjustedClose = Math.Round((decimal)close, 4),
+                Close = c,
+                AdjustedClose = c,
                 Volume = (long)Math.Max(0, Math.Round(volume)),
                 CreatedAt = now,
             });

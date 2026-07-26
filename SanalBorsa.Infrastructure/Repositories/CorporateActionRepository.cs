@@ -47,4 +47,27 @@ public class CorporateActionRepository : BaseRepository<CorporateAction>, ICorpo
             .Where(a => a.StockId == stockId && a.ActionType == type)
             .OrderByDescending(a => a.ActionDate)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<CorporateAction>> GetByStockIdsAsync(
+        IReadOnlyList<int> stockIds,
+        CancellationToken ct = default)
+    {
+        if (stockIds.Count == 0)
+            return [];
+
+        const int batchSize = 200;
+        var all = new List<CorporateAction>();
+        for (var i = 0; i < stockIds.Count; i += batchSize)
+        {
+            var batch = stockIds.Skip(i).Take(batchSize).ToList();
+            var rows = await DbSet.AsNoTracking()
+                .Where(a => batch.Contains(a.StockId))
+                .OrderBy(a => a.StockId)
+                .ThenBy(a => a.ActionDate)
+                .ToListAsync(ct);
+            all.AddRange(rows);
+        }
+
+        return all;
+    }
 }

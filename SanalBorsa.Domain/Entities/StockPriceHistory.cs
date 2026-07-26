@@ -18,7 +18,10 @@ public class StockPriceHistory
 
     public decimal Close { get; set; }
 
-    /// <summary>Split and dividend-adjusted closing price provided by Yahoo Finance</summary>
+    /// <summary>
+    /// TradingView düzeltilmiş kapanış (adjustment=dividends).
+    /// Ham seri <see cref="Close"/>; bu alan TV'den ayrı çekilir.
+    /// </summary>
     public decimal AdjustedClose { get; set; }
 
     public long Volume { get; set; }
