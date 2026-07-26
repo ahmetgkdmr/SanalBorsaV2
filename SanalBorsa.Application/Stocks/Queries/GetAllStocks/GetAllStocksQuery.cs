@@ -9,5 +9,8 @@ public record GetAllStocksQuery(
     int PageSize = 50,
     string? Search = null,
     bool? IsActive = true,
-    string? IndexFilter = null
+    string? IndexFilter = null,
+    /// <summary>volume | price | change | name — son gün verisine göre.</summary>
+    string SortBy = "volume",
+    bool SortDesc = true
 ) : IRequest<PagedResult<StockDto>>;

@@ -19,7 +19,7 @@ public record StockDto(
     long? LastVolume = null,
     IReadOnlyList<decimal>? Sparkline = null,
     IReadOnlyList<string>? BistIndices = null,
-    /// <summary>week | month | year — dönem şampiyonu ise dolu.</summary>
+    /// <summary>week | month | year | fiveyear | tenyear — dönem şampiyonu ise dolu.</summary>
     string? TopGainerPeriod = null,
     string? TopGainerLabel = null,
     decimal? TopGainerReturnPct = null

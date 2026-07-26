@@ -14,6 +14,7 @@ public class UnitOfWork : IUnitOfWork
     private IUserRepository?               _users;
     private IPortfolioRepository?          _portfolios;
     private ITopGainerRepository?          _topGainers;
+    private ITimeMachineLeaderRepository?  _timeMachineLeaders;
 
     public UnitOfWork(AppDbContext context)
     {
@@ -26,6 +27,7 @@ public class UnitOfWork : IUnitOfWork
     public IUserRepository              Users              => _users              ??= new UserRepository(_context);
     public IPortfolioRepository         Portfolios         => _portfolios         ??= new PortfolioRepository(_context);
     public ITopGainerRepository         TopGainers         => _topGainers         ??= new TopGainerRepository(_context);
+    public ITimeMachineLeaderRepository TimeMachineLeaders => _timeMachineLeaders ??= new TimeMachineLeaderRepository(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
         => await _context.SaveChangesAsync(ct);

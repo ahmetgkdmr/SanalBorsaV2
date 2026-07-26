@@ -68,6 +68,10 @@ public class IsYatirimPriceService : IIsYatirimPriceService
                 var high = Math.Round(row.High!.Value, 4);
                 var low = Math.Round(row.Low!.Value, 4);
                 var open = previousClose ?? close;
+                // API TL hacim döner; DB/TV ham serisi adet hacim kullanır → Close'a böl.
+                var volumeShares = close > 0m && row.VolumeTl is > 0
+                    ? (long)Math.Round(row.VolumeTl.Value / close)
+                    : 0L;
 
                 records.Add(new StockPriceHistory
                 {
@@ -77,7 +81,7 @@ public class IsYatirimPriceService : IIsYatirimPriceService
                     Low = low,
                     Close = close,
                     AdjustedClose = close,
-                    Volume = (long)Math.Round(row.VolumeTl ?? 0),
+                    Volume = volumeShares,
                     CreatedAt = DateTime.UtcNow
                 });
 

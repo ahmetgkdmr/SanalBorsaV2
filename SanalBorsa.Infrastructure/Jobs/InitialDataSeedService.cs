@@ -5,14 +5,16 @@ using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.Indices.Commands.BootstrapMarketIndices;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
+using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Runs at startup to bootstrap missing market data, then triggers a daily price sync
-/// after BIST market close (18:35 Istanbul / 15:35 UTC) on every weekday.
+/// Startup bootstrap: eksik sembol/endeks verisini doldurur.
+/// Veri stale ise bir kez BIST ham sync çalıştırır.
+/// Günlük planlı sync Quartz <see cref="TradingViewPriceSyncJob"/> (19:00 TR) üzerinden yapılır.
 /// </summary>
 public class InitialDataSeedService : BackgroundService
 {
@@ -27,48 +29,21 @@ public class InitialDataSeedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Give the app time to fully start before touching the DB
         await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-
         await RunStartupBootstrapAsync(stoppingToken);
-
-        // Daily sync loop — fires after each BIST close
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var delay = GetDelayUntilNextSync();
-            _logger.LogInformation(
-                "Daily price sync scheduled in {Hours:F1}h (next BIST close + 35 min)",
-                delay.TotalHours);
-
-            try
-            {
-                await Task.Delay(delay, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-
-            if (stoppingToken.IsCancellationRequested) break;
-
-            await RunDailySyncAsync(stoppingToken);
-        }
     }
-
-    // ── startup ──────────────────────────────────────────────────────────────
 
     private async Task RunStartupBootstrapAsync(CancellationToken ct)
     {
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var uow      = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            var uow = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
             var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
             var existingStocks = await uow.Stocks.GetAllAsync(ct);
-            var hasPriceData   = await uow.PriceHistories.AnyAsync(ct);
+            var hasPriceData = await uow.PriceHistories.AnyAsync(ct);
 
-            // ── 1. bootstrap hisseler ──────────────────────────────────────
             if (existingStocks.Count == 0 || !hasPriceData)
             {
                 _logger.LogInformation(
@@ -83,9 +58,8 @@ public class InitialDataSeedService : BackgroundService
                     existingStocks.Count);
             }
 
-            // ── 2. bootstrap endeksler (BIST100, XU030, USD/TRY …) ────────
             var indexSymbols = MarketInstrumentSeed.All.Select(e => e.Symbol).ToList();
-            var indexStocks  = await uow.Stocks.GetBySymbolsAsync(indexSymbols, ct);
+            var indexStocks = await uow.Stocks.GetBySymbolsAsync(indexSymbols, ct);
             var indicesNeedBootstrap = indexStocks.Count < indexSymbols.Count
                 || indexStocks.Any(s => s.EarliestDataDate is null || s.NeedsHistoryRefresh);
 
@@ -95,7 +69,6 @@ public class InitialDataSeedService : BackgroundService
                 await mediator.Send(new BootstrapMarketIndicesCommand(), ct);
             }
 
-            // ── 3. veri eskiyse startup'ta da sync yap ────────────────────
             var regularStocks = existingStocks
                 .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange))
                 .ToList();
@@ -108,7 +81,6 @@ public class InitialDataSeedService : BackgroundService
                     .DefaultIfEmpty(DateTime.MinValue.Date)
                     .Max();
 
-                // Pazar günü kontrol etme; en son iş günü veri olması yeterli
                 var expectedLatest = LastBusinessDay(DateTime.UtcNow.Date);
 
                 if (latestDate < expectedLatest)
@@ -116,12 +88,11 @@ public class InitialDataSeedService : BackgroundService
                     _logger.LogInformation(
                         "Price data is stale (latest: {LatestDate:yyyy-MM-dd}, expected: {Expected:yyyy-MM-dd}) — syncing…",
                         latestDate, expectedLatest);
-                    await RunDailySyncAsync(ct);
-                    return; // sync zaten tüm hisseleri ve endeksleri kapsıyor
+                    await RunCatchUpSyncAsync(mediator, ct);
                 }
             }
 
-            _logger.LogInformation("Startup market bootstrap completed — data is up-to-date");
+            _logger.LogInformation("Startup market bootstrap completed");
         }
         catch (Exception ex)
         {
@@ -129,55 +100,27 @@ public class InitialDataSeedService : BackgroundService
         }
     }
 
-    // ── daily sync ───────────────────────────────────────────────────────────
-
-    private async Task RunDailySyncAsync(CancellationToken ct)
+    private async Task RunCatchUpSyncAsync(IMediator mediator, CancellationToken ct)
     {
-        _logger.LogInformation("Running daily price sync (stocks + indices)…");
+        _logger.LogInformation("Running startup catch-up sync (metadata + BIST ham)…");
         try
         {
-            await using var scope    = _scopeFactory.CreateAsyncScope();
-            var mediator             = scope.ServiceProvider.GetRequiredService<IMediator>();
-            var result               = await mediator.Send(new SyncStocksCommand(), ct);
+            var meta = await mediator.Send(new SyncStocksCommand(), ct);
             _logger.LogInformation(
-                "Daily sync complete — updated: {Updated}, prices added: {Prices}",
-                result.StocksUpdated, result.PriceRecordsAdded);
+                "Startup metadata sync — updated: {Updated}",
+                meta.StocksUpdated);
+
+            var bist = await mediator.Send(new SyncBistDailyPricesCommand(), ct);
+            _logger.LogInformation(
+                "Startup BIST ham sync — synced={S} bars={B} failed={F} max={Max:yyyy-MM-dd}",
+                bist.Synced, bist.BarsUpserted, bist.Failed, bist.MaxLatestDate);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Daily price sync failed");
+            _logger.LogError(ex, "Startup catch-up sync failed");
         }
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Calculates the delay until the next sync window:
-    /// weekdays at 18:35 Istanbul time (= 15:35 UTC, 35 min after BIST close).
-    /// </summary>
-    private static TimeSpan GetDelayUntilNextSync()
-    {
-        // UTC+3 için sabit offset kullanıyoruz (İstanbul kış/yaz saati farkı yok)
-        const int istanbulOffsetHours = 3;
-        var istNow = DateTime.UtcNow.AddHours(istanbulOffsetHours);
-
-        // Hedef: İstanbul saatiyle 18:35
-        var candidate = istNow.Date.AddHours(18).AddMinutes(35);
-
-        // Zaman geçtiyse yarına taşı
-        if (istNow >= candidate)
-            candidate = candidate.AddDays(1);
-
-        // Hafta sonu atlat
-        while (candidate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-            candidate = candidate.AddDays(1);
-
-        return candidate - istNow;
-    }
-
-    /// <summary>
-    /// Returns the most recent business day on or before the given date.
-    /// </summary>
     private static DateTime LastBusinessDay(DateTime date)
     {
         var d = date;

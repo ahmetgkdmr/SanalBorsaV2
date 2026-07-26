@@ -10,8 +10,11 @@ using SanalBorsa.Infrastructure.Auth;
 using SanalBorsa.Infrastructure.Data;
 using SanalBorsa.Infrastructure.ExternalServices.Binance;
 using SanalBorsa.Infrastructure.ExternalServices.Bist;
+using SanalBorsa.Infrastructure.ExternalServices.Coinbase;
 using SanalBorsa.Infrastructure.ExternalServices.IsYatirim;
+using SanalBorsa.Infrastructure.ExternalServices.Zorinaq;
 using SanalBorsa.Infrastructure.ExternalServices.Kap;
+using SanalBorsa.Infrastructure.ExternalServices.TradingView;
 using SanalBorsa.Infrastructure.ExternalServices.YahooFinance;
 using SanalBorsa.Infrastructure.Jobs;
 
@@ -79,6 +82,37 @@ public static class DependencyInjection
 
         services.AddScoped<IYahooFinanceService, YahooFinanceService>();
 
+        // Retry'siz Yahoo — crypto backfill probe (404 yağmurunda yavaşlamasın)
+        services.AddHttpClient("YahooFinanceProbe", client =>
+        {
+            client.BaseAddress = new Uri("https://query2.finance.yahoo.com/");
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/json,text/plain,*/*");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
+        // ── Coinbase Exchange (crypto USD history backfill) ───────────────────
+        services.AddHttpClient("Coinbase", client =>
+        {
+            client.BaseAddress = new Uri("https://api.exchange.coinbase.com/");
+            client.DefaultRequestHeaders.Add("User-Agent", "SanalBorsa/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+        services.AddScoped<ICoinbaseMarketClient, CoinbaseMarketClient>();
+
+        // ── Zorinaq BTC archive (pre-Yahoo / pre-Binance) ─────────────────────
+        services.AddHttpClient("ZorinaqArchive", client =>
+        {
+            client.BaseAddress = new Uri("https://price.bublina.eu.org/");
+            client.DefaultRequestHeaders.Add("User-Agent", "SanalBorsa/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "text/plain,*/*");
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+        services.AddScoped<IZorinaqBitcoinArchiveClient, ZorinaqBitcoinArchiveClient>();
+
         services.AddHttpClient("IsYatirim", client =>
         {
             client.BaseAddress = new Uri("https://www.isyatirim.com.tr/");
@@ -91,6 +125,10 @@ public static class DependencyInjection
 
         services.AddScoped<IIsYatirimPriceService, IsYatirimPriceService>();
         services.AddScoped<IIsYatirimCorporateActionService, IsYatirimCorporateActionService>();
+
+        // ── TradingView WebSocket + BIST ham fiyat (Python sync.py yerine) ───
+        services.AddScoped<TradingViewHistoryClient>();
+        services.AddScoped<IBistRawPriceService, BistRawPriceService>();
 
         services.AddHttpClient("Kap", client =>
         {
@@ -115,24 +153,21 @@ public static class DependencyInjection
 
         services.AddScoped<IBistSymbolProvider, KapBistSymbolProvider>();
 
-        // ── Quartz.NET ────────────────────────────────────────────────────────
+        // ── Quartz.NET (saatler Türkiye saati notlarıyla) ───────────────────
         services.AddQuartz(q =>
         {
-            var dailyKey = new JobKey("DailyPriceUpdateJob", "DataSync");
-            q.AddJob<DailyPriceUpdateJob>(opts => opts.WithIdentity(dailyKey));
-            q.AddTrigger(opts => opts
-                .ForJob(dailyKey)
-                .WithIdentity("DailyPriceUpdateTrigger", "DataSync")
-                .WithCronSchedule("0 0 16 ? * MON-FRI", x => x.InTimeZone(TimeZoneInfo.Utc)));
+            var turkeyTz = TimeZoneInfo.FindSystemTimeZoneById(
+                OperatingSystem.IsWindows() ? "Turkey Standard Time" : "Europe/Istanbul");
 
-            var refreshKey = new JobKey("HistoryRefreshJob", "DataSync");
-            q.AddJob<HistoryRefreshJob>(opts => opts.WithIdentity(refreshKey));
+            // 19:00 TR — metadata + BIST ham günlük fiyat (TradingView WS)
+            var tvKey = new JobKey("TradingViewPriceSyncJob", "DataSync");
+            q.AddJob<TradingViewPriceSyncJob>(opts => opts.WithIdentity(tvKey));
             q.AddTrigger(opts => opts
-                .ForJob(refreshKey)
-                .WithIdentity("HistoryRefreshTrigger", "DataSync")
-                .WithCronSchedule("0 0 17 ? * MON-FRI", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .ForJob(tvKey)
+                .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
+                .WithCronSchedule("0 0 19 * * ?", x => x.InTimeZone(turkeyTz)));
 
-            // 23:00 Turkey (UTC+3) = 20:00 UTC — İş Yatırım corporate actions
+            // 23:00 TR — KAP corporate actions (incremental)
             var corpKey = new JobKey("CorporateActionSyncJob", "DataSync");
             q.AddJob<CorporateActionSyncJob>(opts => opts.WithIdentity(corpKey));
             q.AddTrigger(opts => opts
@@ -140,15 +175,15 @@ public static class DependencyInjection
                 .WithIdentity("CorporateActionSyncTrigger", "DataSync")
                 .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
-            // 23:00 Turkey — TradingView raw price incremental fill
-            var tvKey = new JobKey("TradingViewPriceSyncJob", "DataSync");
-            q.AddJob<TradingViewPriceSyncJob>(opts => opts.WithIdentity(tvKey));
+            // 23:05 TR — dönem şampiyonları (top gainers)
+            var topKey = new JobKey("TopGainersJob", "DataSync");
+            q.AddJob<TopGainersJob>(opts => opts.WithIdentity(topKey));
             q.AddTrigger(opts => opts
-                .ForJob(tvKey)
-                .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
-                .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .ForJob(topKey)
+                .WithIdentity("TopGainersTrigger", "DataSync")
+                .WithCronSchedule("0 5 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
-            // 01:30 UTC — Binance USDT günlük kline incremental
+            // 04:30 TR — Binance USDT günlük kline
             var cryptoHistKey = new JobKey("CryptoHistorySyncJob", "DataSync");
             q.AddJob<CryptoHistorySyncJob>(opts => opts.WithIdentity(cryptoHistKey));
             q.AddTrigger(opts => opts
@@ -156,18 +191,18 @@ public static class DependencyInjection
                 .WithIdentity("CryptoHistorySyncTrigger", "DataSync")
                 .WithCronSchedule("0 30 1 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
-            // 23:05 Turkey — top gainers (week / month / year) after price sync
-            var topKey = new JobKey("TopGainersJob", "DataSync");
-            q.AddJob<TopGainersJob>(opts => opts.WithIdentity(topKey));
+            // 05:30 TR — parite sync + zaman makinesi lider tablosu
+            var leadersKey = new JobKey("TimeMachineLeadersJob", "DataSync");
+            q.AddJob<TimeMachineLeadersJob>(opts => opts.WithIdentity(leadersKey));
             q.AddTrigger(opts => opts
-                .ForJob(topKey)
-                .WithIdentity("TopGainersTrigger", "DataSync")
-                .WithCronSchedule("0 5 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .ForJob(leadersKey)
+                .WithIdentity("TimeMachineLeadersTrigger", "DataSync")
+                .WithCronSchedule("0 30 2 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
         });
 
         services.AddQuartzHostedService(opts => opts.WaitForJobsToComplete = true);
 
-        // ── Background seeder ─────────────────────────────────────────────────
+        // ── Startup bootstrap (günlük fiyat Quartz 19:00'da) ─────────────────
         services.AddHostedService<InitialDataSeedService>();
 
         return services;

@@ -1,11 +1,13 @@
 using AutoMapper;
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Domain.Models;
 
 namespace SanalBorsa.Application.Stocks.Queries.GetAllStocks;
 
@@ -23,7 +25,7 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
     public async Task<PagedResult<StockDto>> Handle(GetAllStocksQuery request, CancellationToken cancellationToken)
     {
         var all = await _uow.Stocks.GetAllAsync(cancellationToken);
-        var topGainers = await _uow.TopGainers.GetAllAsync(cancellationToken);
+        var topGainers = await _uow.TopGainers.GetByMarketAsync(MarketType.Bist, cancellationToken);
         var championBySymbol = topGainers
             .GroupBy(t => t.Symbol)
             .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Period).First());
@@ -52,19 +54,22 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
                 BistIndexCompositionSeed.SymbolMatchesFilter(s.Symbol, request.IndexFilter!));
         }
 
-        // Kategoride olan şampiyonlar en başta; filtrede olmayanlar hiç gelmez
-        var ordered = filtered
-            .OrderBy(s => championBySymbol.TryGetValue(s.Symbol, out var c)
-                ? c.Period switch
-                {
-                    TopGainerPeriod.Week => 0,
-                    TopGainerPeriod.Month => 1,
-                    TopGainerPeriod.Year => 2,
-                    _ => 9,
-                }
-                : 9)
-            .ThenBy(s => s.Symbol)
-            .ToList();
+        var list = filtered.ToList();
+        var sortBy = NormalizeSort(request.SortBy);
+        var desc = request.SortDesc;
+
+        // Hacim / fiyat / değişim için son gün snapshot'ları gerekir (sıralama şampiyon önceliğinden bağımsız)
+        IReadOnlyDictionary<int, MarketPriceSnapshot>? sortSnaps = null;
+        if (sortBy is "volume" or "price" or "change")
+        {
+            sortSnaps = await _uow.PriceHistories.GetMarketSnapshotsAsync(
+                list.Select(s => s.Id).ToList(),
+                sparklineDays: 2,
+                cancellationToken,
+                windowDays: 14);
+        }
+
+        var ordered = SortStocks(list, sortBy, desc, sortSnaps).ToList();
         var total = ordered.Count;
         var page = request.Page < 1 ? 1 : request.Page;
         var pageSize = request.PageSize < 1 ? 50 : Math.Min(request.PageSize, 500);
@@ -91,20 +96,8 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
                 decimal? ret = null;
                 if (crown is not null)
                 {
-                    period = crown.Period switch
-                    {
-                        TopGainerPeriod.Week => "week",
-                        TopGainerPeriod.Month => "month",
-                        TopGainerPeriod.Year => "year",
-                        _ => null,
-                    };
-                    label = crown.Period switch
-                    {
-                        TopGainerPeriod.Week => "Son 1 haftanın en çok kazananı",
-                        TopGainerPeriod.Month => "Son 1 ayın en çok kazananı",
-                        TopGainerPeriod.Year => "Son 1 yılın en çok kazananı",
-                        _ => null,
-                    };
+                    period = TopGainerPeriodInfo.Key(crown.Period);
+                    label = TopGainerPeriodInfo.Label(crown.Period);
                     ret = crown.ReturnPct;
                 }
 
@@ -135,5 +128,58 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
             .ToList();
 
         return new PagedResult<StockDto>(items, total, page, pageSize);
+    }
+
+    private static string NormalizeSort(string? sortBy)
+    {
+        var key = (sortBy ?? "volume").Trim().ToLowerInvariant();
+        return key is "volume" or "price" or "change" or "name" ? key : "volume";
+    }
+
+    private static IEnumerable<Stock> SortStocks(
+        List<Stock> list,
+        string sortBy,
+        bool desc,
+        IReadOnlyDictionary<int, MarketPriceSnapshot>? snaps)
+    {
+        snaps ??= new Dictionary<int, MarketPriceSnapshot>();
+
+        return sortBy switch
+        {
+            "name" => desc
+                ? list.OrderByDescending(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
+                : list.OrderBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase),
+
+            "price" => OrderByValue(
+                list,
+                s => snaps.TryGetValue(s.Id, out var snap) ? snap.LastClose ?? 0m : 0m,
+                desc),
+
+            "change" => OrderByValue(list, s => ChangePct(snaps, s.Id), desc),
+
+            _ => OrderByValue(
+                list,
+                s => snaps.TryGetValue(s.Id, out var snap) ? snap.LastVolume ?? 0L : 0L,
+                desc),
+        };
+    }
+
+    private static IOrderedEnumerable<Stock> OrderByValue<T>(
+        List<Stock> list,
+        Func<Stock, T> key,
+        bool desc) where T : IComparable<T>
+    {
+        return desc
+            ? list.OrderByDescending(key).ThenBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase)
+            : list.OrderBy(key).ThenBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static decimal ChangePct(IReadOnlyDictionary<int, MarketPriceSnapshot> snaps, int stockId)
+    {
+        if (!snaps.TryGetValue(stockId, out var snap))
+            return 0m;
+        if (snap.LastClose is null || snap.PreviousClose is null or 0m)
+            return 0m;
+        return (snap.LastClose.Value - snap.PreviousClose.Value) / snap.PreviousClose.Value * 100m;
     }
 }

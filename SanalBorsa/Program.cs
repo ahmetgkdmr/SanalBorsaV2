@@ -148,6 +148,8 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Milyonlarca satırlık fiyat tablosunda indeks kuran migration'lar 30 sn'yi aşabiliyor.
+        db.Database.SetCommandTimeout(TimeSpan.FromMinutes(15));
         await db.Database.MigrateAsync();
     }
 

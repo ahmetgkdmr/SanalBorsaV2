@@ -23,11 +23,27 @@ public class YahooFinanceService : IYahooFinanceService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<StockPriceHistory>> GetPriceHistoryAsync(
+    public Task<IReadOnlyList<StockPriceHistory>> GetPriceHistoryAsync(
         string yahooSymbol,
         DateTime from,
         DateTime to,
         CancellationToken ct = default)
+        => FetchPriceHistoryAsync(yahooSymbol, from, to, clientName: "YahooFinance", quiet: false, ct);
+
+    public Task<IReadOnlyList<StockPriceHistory>> TryGetPriceHistoryAsync(
+        string yahooSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+        => FetchPriceHistoryAsync(yahooSymbol, from, to, clientName: "YahooFinanceProbe", quiet: true, ct);
+
+    private async Task<IReadOnlyList<StockPriceHistory>> FetchPriceHistoryAsync(
+        string yahooSymbol,
+        DateTime from,
+        DateTime to,
+        string clientName,
+        bool quiet,
+        CancellationToken ct)
     {
         var period1 = ToUnixTimestamp(from);
         var period2 = ToUnixTimestamp(to);
@@ -35,12 +51,17 @@ public class YahooFinanceService : IYahooFinanceService
         var url = $"v8/finance/chart/{Uri.EscapeDataString(yahooSymbol)}" +
                   $"?period1={period1}&period2={period2}&interval=1d&events=div%2Csplits&includeAdjustedClose=true";
 
-        var client = _httpClientFactory.CreateClient("YahooFinance");
+        var client = _httpClientFactory.CreateClient(clientName);
 
         try
         {
             var response = await client.GetAsync(url, ct);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                if (!quiet)
+                    _logger.LogWarning("Yahoo {Symbol} HTTP {Status}", yahooSymbol, (int)response.StatusCode);
+                return [];
+            }
 
             var json = await response.Content.ReadAsStringAsync(ct);
             var data = JsonSerializer.Deserialize<YahooChartResponse>(json, JsonOptions);
@@ -48,7 +69,8 @@ public class YahooFinanceService : IYahooFinanceService
             var result = data?.Chart?.Result?.FirstOrDefault();
             if (result?.Timestamp is null || result.Indicators?.Quote is null)
             {
-                _logger.LogWarning("No price data returned for {Symbol}", yahooSymbol);
+                if (!quiet)
+                    _logger.LogWarning("No price data returned for {Symbol}", yahooSymbol);
                 return [];
             }
 
@@ -67,7 +89,6 @@ public class YahooFinanceService : IYahooFinanceService
                 var volume = quote.Volume?.ElementAtOrDefault(i);
                 var adjClose = adjCloseList?.ElementAtOrDefault(i);
 
-                // Forex/endekslerde bazen yalnızca close gelir
                 if (close is null)
                     continue;
 
@@ -98,12 +119,20 @@ public class YahooFinanceService : IYahooFinanceService
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "HTTP error fetching price history for {Symbol}", yahooSymbol);
+            if (!quiet)
+                _logger.LogError(ex, "HTTP error fetching price history for {Symbol}", yahooSymbol);
             return [];
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "JSON parse error for price history of {Symbol}", yahooSymbol);
+            if (!quiet)
+                _logger.LogError(ex, "JSON parse error for price history of {Symbol}", yahooSymbol);
+            return [];
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            if (!quiet)
+                _logger.LogWarning("Yahoo timeout for {Symbol}", yahooSymbol);
             return [];
         }
     }

@@ -36,6 +36,10 @@ public class BootstrapMarketIndicesCommandHandler
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Türetilmiş enstrümanlar (gram altın) Yahoo'dan doğrudan çekilemez — SyncParityHistory üretir.
+            if (string.IsNullOrWhiteSpace(entry.YahooSymbol))
+                continue;
+
             try
             {
                 var stock = await _uow.Stocks.GetBySymbolAsync(entry.Symbol, cancellationToken);

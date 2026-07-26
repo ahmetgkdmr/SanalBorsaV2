@@ -1,7 +1,8 @@
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.DTOs;
-using SanalBorsa.Domain.Enums;
+using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.Stocks.Queries.GetTopGainers;
@@ -19,7 +20,7 @@ public class GetTopGainersQueryHandler : IRequestHandler<GetTopGainersQuery, Top
         GetTopGainersQuery request,
         CancellationToken cancellationToken)
     {
-        var rows = await _uow.TopGainers.GetAllAsync(cancellationToken);
+        var rows = await _uow.TopGainers.GetByMarketAsync(request.MarketType, cancellationToken);
         if (rows.Count == 0)
             return new TopGainersResponseDto(null, null, []);
 
@@ -28,14 +29,15 @@ public class GetTopGainersQueryHandler : IRequestHandler<GetTopGainersQuery, Top
             stockIds, sparklineDays: 28, cancellationToken);
 
         var items = rows
-            .OrderBy(r => r.Period)
+            .OrderBy(r => TopGainerPeriodInfo.SortOrder(r.Period))
             .ThenBy(r => r.Rank)
             .Select(r =>
             {
                 snapshots.TryGetValue(r.StockId, out var snap);
                 return new TopGainerDto(
-                    Period: PeriodKey(r.Period),
-                    PeriodLabel: PeriodLabel(r.Period),
+                    Period: TopGainerPeriodInfo.Key(r.Period),
+                    PeriodLabel: TopGainerPeriodInfo.Label(r.Period),
+                    PeriodShortLabel: TopGainerPeriodInfo.ShortLabel(r.Period),
                     Rank: r.Rank,
                     Symbol: r.Symbol,
                     Name: r.Name,
@@ -47,7 +49,9 @@ public class GetTopGainersQueryHandler : IRequestHandler<GetTopGainersQuery, Top
                     LastClose: snap?.LastClose,
                     PreviousClose: snap?.PreviousClose,
                     Sparkline: snap?.Sparkline,
-                    BistIndices: BistIndexCompositionSeed.GetIndicesForSymbol(r.Symbol));
+                    BistIndices: request.MarketType == MarketType.Bist
+                        ? BistIndexCompositionSeed.GetIndicesForSymbol(r.Symbol)
+                        : null);
             })
             .ToList();
 
@@ -56,20 +60,4 @@ public class GetTopGainersQueryHandler : IRequestHandler<GetTopGainersQuery, Top
             rows.Max(r => r.ComputedAt),
             items);
     }
-
-    private static string PeriodKey(TopGainerPeriod p) => p switch
-    {
-        TopGainerPeriod.Week => "week",
-        TopGainerPeriod.Month => "month",
-        TopGainerPeriod.Year => "year",
-        _ => p.ToString().ToLowerInvariant(),
-    };
-
-    private static string PeriodLabel(TopGainerPeriod p) => p switch
-    {
-        TopGainerPeriod.Week => "Son 1 haftanın en çok kazananı",
-        TopGainerPeriod.Month => "Son 1 ayın en çok kazananı",
-        TopGainerPeriod.Year => "Son 1 yılın en çok kazananı",
-        _ => "En çok kazanan",
-    };
 }

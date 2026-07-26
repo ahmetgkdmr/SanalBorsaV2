@@ -105,17 +105,21 @@ public static class TimeMachineCalculator
         var valueSeries = new List<decimal>();
         var lotSeries = new List<decimal>();
         var lotEvents = new List<LotEventMarkerDto>();
+        var states = new List<PortfolioState>();
+        AddState(states, buyDate.Date, lots, cash);
 
         foreach (var point in monthlyPoints)
         {
             while (actionIdx < actions.Count &&
                    actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date)
             {
+                var actionDate = actions[actionIdx].ActionDate.Date;
                 ApplyAndRecord(
                     actions[actionIdx], point, dailyPrices,
                     ref lots, ref cash,
                     ref dividendsReceived, ref dividendsReinvested, ref lotsFromReinvest,
                     lotEvents);
+                AddState(states, actionDate, lots, cash);
                 actionIdx++;
             }
 
@@ -134,7 +138,8 @@ public static class TimeMachineCalculator
         return new TimeMachineResultDto(
             symbol, mode, invested, currentValue, gainPct, initialLots, lots,
             buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story);
+            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story,
+            DailySeries: BuildDailySeries(dailyPrices, buyDate, states));
     }
 
     private static TimeMachineResultDto CalculateDca(
@@ -162,6 +167,8 @@ public static class TimeMachineCalculator
         var valueSeries = new List<decimal>();
         var lotSeries = new List<decimal>();
         var lotEvents = new List<LotEventMarkerDto>();
+        var states = new List<PortfolioState>();
+        AddState(states, buyDate.Date, lots, cash);
 
         for (var i = 0; i < monthlyPoints.Count; i++)
         {
@@ -183,16 +190,20 @@ public static class TimeMachineCalculator
                     if (initialLots == 0 && lots >= MinLots)
                         initialLots = RoundLots(lots);
                 }
+
+                AddState(states, point.MonthEnd.Date, lots, cash);
             }
 
             while (actionIdx < actions.Count &&
                    actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date)
             {
+                var actionDate = actions[actionIdx].ActionDate.Date;
                 ApplyAndRecord(
                     actions[actionIdx], point, dailyPrices,
                     ref lots, ref cash,
                     ref dividendsReceived, ref dividendsReinvested, ref lotsFromReinvest,
                     lotEvents);
+                AddState(states, actionDate, lots, cash);
                 actionIdx++;
             }
 
@@ -222,7 +233,8 @@ public static class TimeMachineCalculator
         return new TimeMachineResultDto(
             symbol, mode, invested, currentValue, gainPct, initialLots, lots,
             buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story);
+            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story,
+            DailySeries: BuildDailySeries(dailyPrices, buyDate, states));
     }
 
     private static void ApplyAndRecord(
@@ -304,7 +316,7 @@ public static class TimeMachineCalculator
                         action.ActionType.ToString(),
                         BuildLotEventLabel(action),
                         lotsBefore, RoundLots(lots), action.Description,
-                        Story: story));
+                        Story: story, Day: action.ActionDate.Day));
                     return;
                 }
 
@@ -320,7 +332,7 @@ public static class TimeMachineCalculator
                         action.ActionType.ToString(),
                         BuildLotEventLabel(action),
                         lotsBefore, RoundLots(lots), action.Description,
-                        Story: story));
+                        Story: story, Day: action.ActionDate.Day));
                     return;
                 }
 
@@ -352,7 +364,8 @@ public static class TimeMachineCalculator
                 action.Description,
                 cashReceived,
                 lotsBought,
-                story));
+                story,
+                action.ActionDate.Day));
         }
     }
 
@@ -495,6 +508,69 @@ public static class TimeMachineCalculator
         return points;
     }
 
+    /// <summary>
+    /// Portföyün (lot, nakit) durumu yalnızca belirli tarihlerde değişir: aylık alım günü
+    /// ve şirket olayı günleri. Bu çizelge sayesinde aradaki her işlem günü için değer
+    /// hesabı, aylık hesaplamayı hiç değiştirmeden birebir türetilebiliyor.
+    /// </summary>
+    private static void AddState(List<PortfolioState> states, DateTime date, decimal lots, decimal cash)
+    {
+        // Aylık alım ay sonunda işlendiği için ay içi olaylar geriye düşebiliyor; sıra bozulmasın.
+        if (states.Count > 0 && date < states[^1].Date)
+            date = states[^1].Date;
+
+        if (states.Count > 0 && states[^1].Date == date)
+        {
+            states[^1] = new PortfolioState(date, lots, cash);
+            return;
+        }
+
+        states.Add(new PortfolioState(date, lots, cash));
+    }
+
+    private static DailySeriesDto? BuildDailySeries(
+        IReadOnlyList<StockPriceHistory> dailyPrices,
+        DateTime buyDate,
+        IReadOnlyList<PortfolioState> states)
+    {
+        if (states.Count == 0)
+            return null;
+
+        var start = dailyPrices.FirstOrDefault(p => p.Date.Date >= buyDate.Date)?.Date.Date;
+        if (start is null)
+            return null;
+
+        var days = new List<int>();
+        var prices = new List<decimal>();
+        var values = new List<decimal>();
+
+        var stateIdx = 0;
+        var lots = states[0].Lots;
+        var cash = states[0].Cash;
+
+        foreach (var p in dailyPrices)
+        {
+            var date = p.Date.Date;
+            if (date < start.Value)
+                continue;
+
+            while (stateIdx < states.Count && states[stateIdx].Date <= date)
+            {
+                lots = states[stateIdx].Lots;
+                cash = states[stateIdx].Cash;
+                stateIdx++;
+            }
+
+            days.Add((int)(date - start.Value).TotalDays);
+            prices.Add(Math.Round(p.Close, 4));
+            values.Add(Math.Round(lots * p.Close + cash, 2));
+        }
+
+        return days.Count < 2
+            ? null
+            : new DailySeriesDto(start.Value.ToString("yyyy-MM-dd"), days, prices, values);
+    }
+
     private static TimeMachineResultDto Error(
         string symbol,
         string mode,
@@ -509,4 +585,6 @@ public static class TimeMachineCalculator
             Error: message);
 
     private sealed record MonthlyPricePoint(int Year, int Month, DateTime MonthEnd, decimal Price);
+
+    private sealed record PortfolioState(DateTime Date, decimal Lots, decimal Cash);
 }

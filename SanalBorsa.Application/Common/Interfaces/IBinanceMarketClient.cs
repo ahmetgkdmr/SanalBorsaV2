@@ -16,6 +16,9 @@ public interface IBinanceMarketClient
         DateTime? startUtc = null,
         DateTime? endUtc = null,
         CancellationToken ct = default);
+
+    /// <summary>İlk günlük mumun open time (Binance listing günü yaklaşık).</summary>
+    Task<DateTime?> GetFirstDailyKlineDateAsync(string symbol, CancellationToken ct = default);
 }
 
 public record BinanceKline(

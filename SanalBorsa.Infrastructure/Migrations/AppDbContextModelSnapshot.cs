@@ -276,7 +276,69 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.HasIndex("StockId", "Date", "Close")
                         .HasDatabaseName("IX_StockPriceHistories_StockId_Date_Close");
 
+                    b.HasIndex("Date", "StockId")
+                        .HasDatabaseName("IX_StockPriceHistories_Date_StockId");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("Date", "StockId"), new[] { "Close" });
+
                     b.ToTable("StockPriceHistories", (string)null);
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.TimeMachineLeader", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("EndPrice")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ReturnPct")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("StartPrice")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<int>("StockId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category", "StartDate", "Rank")
+                        .IsUnique()
+                        .HasDatabaseName("IX_TimeMachineLeaders_Category_StartDate_Rank");
+
+                    b.ToTable("TimeMachineLeaders", (string)null);
                 });
 
             modelBuilder.Entity("SanalBorsa.Domain.Entities.TopGainer", b =>
@@ -296,6 +358,11 @@ namespace SanalBorsa.Infrastructure.Migrations
                     b.Property<decimal>("EndPrice")
                         .HasPrecision(18, 6)
                         .HasColumnType("decimal(18,6)");
+
+                    b.Property<int>("MarketType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -324,16 +391,16 @@ namespace SanalBorsa.Infrastructure.Migrations
 
                     b.Property<string>("Symbol")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("StockId");
 
-                    b.HasIndex("Period", "Rank")
+                    b.HasIndex("MarketType", "Period", "Rank")
                         .IsUnique()
-                        .HasDatabaseName("IX_TopGainers_Period_Rank");
+                        .HasDatabaseName("IX_TopGainers_MarketType_Period_Rank");
 
                     b.ToTable("TopGainers", (string)null);
                 });

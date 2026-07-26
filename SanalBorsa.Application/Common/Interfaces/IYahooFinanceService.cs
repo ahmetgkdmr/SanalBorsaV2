@@ -14,6 +14,13 @@ public interface IYahooFinanceService
         DateTime to,
         CancellationToken ct = default);
 
+    /// <summary>Retry'siz hızlı çekim (yoksa boş liste; bulk probe için).</summary>
+    Task<IReadOnlyList<StockPriceHistory>> TryGetPriceHistoryAsync(
+        string yahooSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default);
+
     /// <summary>
     /// Fetches dividend and split events for a symbol.
     /// Returns corporate actions detected by Yahoo Finance (dividends + splits).

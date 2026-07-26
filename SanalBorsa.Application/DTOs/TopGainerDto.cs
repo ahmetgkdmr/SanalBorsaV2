@@ -3,6 +3,7 @@ namespace SanalBorsa.Application.DTOs;
 public record TopGainerDto(
     string Period,
     string PeriodLabel,
+    string PeriodShortLabel,
     int Rank,
     string Symbol,
     string Name,

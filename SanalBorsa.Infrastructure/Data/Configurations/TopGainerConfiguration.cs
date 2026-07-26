@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SanalBorsa.Domain.Entities;
+using SanalBorsa.Domain.Enums;
 
 namespace SanalBorsa.Infrastructure.Data.Configurations;
 
@@ -12,6 +13,11 @@ public class TopGainerConfiguration : IEntityTypeConfiguration<TopGainer>
 
         builder.HasKey(t => t.Id);
 
+        builder.Property(t => t.MarketType)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(MarketType.Bist);
+
         builder.Property(t => t.Period)
             .IsRequired()
             .HasConversion<int>();
@@ -20,7 +26,7 @@ public class TopGainerConfiguration : IEntityTypeConfiguration<TopGainer>
 
         builder.Property(t => t.Symbol)
             .IsRequired()
-            .HasMaxLength(20);
+            .HasMaxLength(32);
 
         builder.Property(t => t.Name)
             .IsRequired()
@@ -34,9 +40,9 @@ public class TopGainerConfiguration : IEntityTypeConfiguration<TopGainer>
         builder.Property(t => t.EndDate).HasColumnType("date");
         builder.Property(t => t.ComputedAt).IsRequired();
 
-        builder.HasIndex(t => new { t.Period, t.Rank })
+        builder.HasIndex(t => new { t.MarketType, t.Period, t.Rank })
             .IsUnique()
-            .HasDatabaseName("IX_TopGainers_Period_Rank");
+            .HasDatabaseName("IX_TopGainers_MarketType_Period_Rank");
 
         builder.HasOne(t => t.Stock)
             .WithMany()

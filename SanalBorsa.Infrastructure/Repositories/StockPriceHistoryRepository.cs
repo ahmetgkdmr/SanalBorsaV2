@@ -173,6 +173,19 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         return await DbSet.MaxAsync(p => p.Date, ct);
     }
 
+    public async Task<DateTime?> GetLatestTradingDateForMarketAsync(
+        MarketType marketType,
+        CancellationToken ct = default)
+    {
+        var q =
+            from p in DbSet.AsNoTracking()
+            join s in Context.Set<Stock>().AsNoTracking() on p.StockId equals s.Id
+            where s.MarketType == marketType && s.IsActive
+            select (DateTime?)p.Date;
+
+        return await q.MaxAsync(ct);
+    }
+
     public async Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close)>> GetClosesOnOrBeforeAsync(
         IReadOnlyList<int> stockIds,
         DateTime onOrBefore,
@@ -213,5 +226,27 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         }
 
         return result;
+    }
+
+    public async Task<IReadOnlyList<DailyClose>> GetDailyClosesAsync(
+        MarketType marketType,
+        DateTime fromInclusive,
+        DateTime toInclusive,
+        CancellationToken ct = default)
+    {
+        var rangeStart = fromInclusive.Date;
+        var rangeEnd = toInclusive.Date;
+
+        var query =
+            from p in DbSet.AsNoTracking()
+            join s in Context.Set<Stock>().AsNoTracking() on p.StockId equals s.Id
+            where s.MarketType == marketType
+                  && s.IsActive
+                  && p.Date >= rangeStart
+                  && p.Date <= rangeEnd
+            orderby p.Date
+            select new DailyClose(p.StockId, p.Date, p.Close);
+
+        return await query.ToListAsync(ct);
     }
 }

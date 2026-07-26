@@ -35,12 +35,28 @@ public static class MarketInstrumentSeed
         new("XKTUM",  "XKTUM.IS",  "BIST Katılım Endeksi",          "BİST KATILIM",    "INDEX", "TRY", 2),
         new("XKURY",  "XKURY.IS",  "BIST Kurumsal Yönetim Endeksi", "BİST KUR. YÖN.",  "INDEX", "TRY", 2),
 
-        // ── Döviz ────────────────────────────────────────────────────────
-        new("USDTRY", "TRY=X",     "USD/TRY Döviz Kuru",            "USD/TRY",         "FX",    "TRY", 4),
+        // ── Döviz & değerli maden (TL bazlı pariteler) ───────────────────
+        new("USDTRY",    "TRY=X",    "USD/TRY Döviz Kuru",  "USD/TRY",    "FX", "TRY", 4),
+        new("EURTRY",    "EURTRY=X", "EUR/TRY Döviz Kuru",  "EUR/TRY",    "FX", "TRY", 4),
+        // GC=F (USD/ons) × USDTRY ÷ 31,1034768 ile türetilir — Yahoo'da doğrudan TL karşılığı yok.
+        new("GRAMALTIN", "",         "Gram Altın (TL)",     "GRAM ALTIN", "FX", "TRY", 2),
     ];
+
+    /// <summary>Zaman makinesinde hisseye alternatif gösterilen TL pariteleri (sıra = gösterim sırası).</summary>
+    public static readonly IReadOnlyList<string> ParitySymbols = ["USDTRY", "EURTRY", "GRAMALTIN"];
+
+    /// <summary>Yahoo'dan çekilen ons altın kaynağı; TL gram fiyatı buradan türetilir.</summary>
+    public const string GoldOunceYahooSymbol = "GC=F";
+
+    /// <summary>1 troy ons = 31,1034768 gram.</summary>
+    public const decimal GramsPerTroyOunce = 31.1034768m;
 
     public static bool IsMarketInstrument(string? exchange)
         => exchange is "INDEX" or "FX";
+
+    public static bool IsParitySymbol(string? symbol)
+        => symbol is not null
+           && ParitySymbols.Any(p => p.Equals(symbol, StringComparison.OrdinalIgnoreCase));
 
     public static MarketInstrumentEntry? FindBySymbol(string symbol)
         => All.FirstOrDefault(e =>

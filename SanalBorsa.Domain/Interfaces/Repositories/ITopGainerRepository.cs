@@ -7,5 +7,11 @@ public interface ITopGainerRepository
 {
     Task<IReadOnlyList<TopGainer>> GetAllAsync(CancellationToken ct = default);
 
-    Task ReplaceAllAsync(IReadOnlyList<TopGainer> rows, CancellationToken ct = default);
+    Task<IReadOnlyList<TopGainer>> GetByMarketAsync(MarketType marketType, CancellationToken ct = default);
+
+    /// <summary>Yalnızca verilen market'in satırlarını silip yeniler (diğer market korunur).</summary>
+    Task ReplaceForMarketAsync(
+        MarketType marketType,
+        IReadOnlyList<TopGainer> rows,
+        CancellationToken ct = default);
 }

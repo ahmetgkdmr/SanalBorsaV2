@@ -41,11 +41,26 @@ public interface IStockPriceHistoryRepository : IRepository<StockPriceHistory>
     /// <summary>Global max trading date in price history (last close day).</summary>
     Task<DateTime?> GetLatestTradingDateAsync(CancellationToken ct = default);
 
+    /// <summary>Belirli market'teki hisselerin max işlem tarihi (JOIN — Contains listesi yok).</summary>
+    Task<DateTime?> GetLatestTradingDateForMarketAsync(
+        MarketType marketType,
+        CancellationToken ct = default);
+
     /// <summary>
     /// For each stock: close on the latest session on or before <paramref name="onOrBefore"/>.
     /// </summary>
     Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close)>> GetClosesOnOrBeforeAsync(
         IReadOnlyList<int> stockIds,
         DateTime onOrBefore,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Bir market'in verilen tarih aralığındaki tüm günlük kapanışları, tarihe göre sıralı.
+    /// Günlük liderlik tablosunun tek geçişli taraması için — entity izleme yok.
+    /// </summary>
+    Task<IReadOnlyList<DailyClose>> GetDailyClosesAsync(
+        MarketType marketType,
+        DateTime fromInclusive,
+        DateTime toInclusive,
         CancellationToken ct = default);
 }

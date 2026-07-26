@@ -136,6 +136,22 @@ public sealed class BinanceMarketClient : IBinanceMarketClient
             .ToList();
     }
 
+    public async Task<DateTime?> GetFirstDailyKlineDateAsync(string symbol, CancellationToken ct = default)
+    {
+        var sym = symbol.Trim().ToUpperInvariant();
+        var path = $"/api/v3/klines?symbol={sym}&interval=1d&limit=1&startTime=0";
+        try
+        {
+            var batch = await GetKlineBatchAsync(path, ct);
+            return batch.Count == 0 ? null : batch[0].OpenTimeUtc.Date;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Binance first kline failed for {Symbol}", sym);
+            return null;
+        }
+    }
+
     private async Task<List<BinanceKline>> GetKlineBatchAsync(string pathAndQuery, CancellationToken ct)
     {
         Exception? last = null;

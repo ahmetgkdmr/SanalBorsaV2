@@ -53,5 +53,11 @@ public class StockPriceHistoryConfiguration : IEntityTypeConfiguration<StockPric
         // Covering index for time-series range queries
         builder.HasIndex(p => new { p.StockId, p.Date, p.Close })
             .HasDatabaseName("IX_StockPriceHistories_StockId_Date_Close");
+
+        // Tarih öncelikli tarama (zaman makinesi liderlik tablosu her gece tüm geçmişi
+        // tarih sırasıyla okur; bu indeks olmadan sıralama tüm tabloyu diske döküyor).
+        builder.HasIndex(p => new { p.Date, p.StockId })
+            .HasDatabaseName("IX_StockPriceHistories_Date_StockId")
+            .IncludeProperties(p => p.Close);
     }
 }

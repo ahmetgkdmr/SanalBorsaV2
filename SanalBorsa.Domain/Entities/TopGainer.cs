@@ -3,12 +3,14 @@ using SanalBorsa.Domain.Enums;
 namespace SanalBorsa.Domain.Entities;
 
 /// <summary>
-/// Haftalık güncellenen dönem şampiyonları (1W / 1M / 1Y en çok kazanan).
-/// Her dönem için Rank=1 tutulur; job yeniden hesaplayınca tablo yenilenir.
+/// Dönem şampiyonları (1W / 1M / 1Y / 5Y / 10Y). BIST ve Crypto ayrı satırlar.
+/// Her (MarketType, Period) için Rank=1; job yeniden hesaplayınca ilgili market yenilenir.
 /// </summary>
 public class TopGainer
 {
     public int Id { get; set; }
+
+    public MarketType MarketType { get; set; } = MarketType.Bist;
 
     public TopGainerPeriod Period { get; set; }
 

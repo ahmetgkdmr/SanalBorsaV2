@@ -3,12 +3,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quartz;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
+using SanalBorsa.Domain.Entities;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Nightly 23:05 Turkey — recomputes week / month / year top gainer champions
-/// using the latest close in DB (typically last Friday when run on weekend).
+/// Her gece 23:05 Türkiye saati — BIST ve Crypto için 5 dönem şampiyonunu
+/// (1h / 1a / 1y / 5y / 10y) DB'deki son kapanışa göre yeniden hesaplar.
 /// </summary>
 [DisallowConcurrentExecution]
 public class TopGainersJob : IJob
@@ -31,10 +32,21 @@ public class TopGainersJob : IJob
 
         try
         {
-            var result = await mediator.Send(new ComputeTopGainersCommand(), context.CancellationToken);
-            _logger.LogInformation(
-                "TopGainersJob completed — AsOf={AsOf:yyyy-MM-dd} Week={Week} Month={Month} Year={Year}",
-                result.AsOfDate, result.WeekChampion, result.MonthChampion, result.YearChampion);
+            foreach (var market in new[] { MarketType.Bist, MarketType.Crypto })
+            {
+                var result = await mediator.Send(
+                    new ComputeTopGainersCommand(market),
+                    context.CancellationToken);
+                _logger.LogInformation(
+                    "TopGainersJob {Market} — AsOf={AsOf:yyyy-MM-dd} Week={Week} Month={Month} Year={Year} FiveY={FiveY} TenY={TenY}",
+                    result.MarketType,
+                    result.AsOfDate,
+                    result.WeekChampion,
+                    result.MonthChampion,
+                    result.YearChampion,
+                    result.FiveYearChampion,
+                    result.TenYearChampion);
+            }
         }
         catch (Exception ex)
         {
