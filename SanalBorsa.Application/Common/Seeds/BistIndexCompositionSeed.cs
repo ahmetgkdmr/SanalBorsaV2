@@ -1,33 +1,35 @@
 namespace SanalBorsa.Application.Common.Seeds;
 
 /// <summary>
-/// BIST endeks bileşen listeleri. Çeyreklik rebalancing sonrası güncellenebilir.
-/// 2025 Q3 verileri esas alınmıştır.
+/// BIST endeks bileşen listeleri.
+/// Büyüklük endeksleri (XU030 / XU050 / XU100): Borsa İstanbul resmi
+/// <c>hisse_endeks_ds.csv</c> — tarih 27/07/2026 (100 bileşen).
+/// Sektör endeksleri UI filtreleri için sadeleştirilmiş listelerdir; çeyreklik güncellenebilir.
 /// </summary>
 public static class BistIndexCompositionSeed
 {
-    // ── Büyüklük endeksleri ───────────────────────────────────────────────────────
+    // ── Büyüklük endeksleri (Borsa İstanbul resmi bileşenler, 27/07/2026) ─────────
 
     private static readonly HashSet<string> _xu030 = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AKBNK","AKSEN","ARCLK","ASELS","ASTOR","BIMAS","DOHOL","EKGYO","ENKAI","EREGL",
-        "FROTO","GARAN","HEKTS","ISCTR","KCHOL","KOZAL","KRDMD","MGROS","PETKM","PGSUS",
-        "SAHOL","SASA","SISE","TCELL","THYAO","TOASO","TTKOM","TUPRS","VESTL","YKBNK"
+        "AEFES","AKBNK","ASELS","ASTOR","BIMAS","DSTKF","EKGYO","ENKAI","EREGL","FROTO",
+        "GARAN","GUBRF","ISCTR","KCHOL","KRDMD","MGROS","PETKM","PGSUS","SAHOL","SASA",
+        "SISE","TAVHL","TCELL","THYAO","TOASO","TRALT","TTKOM","TUPRS","VAKBN","YKBNK"
     };
 
     private static readonly HashSet<string> _xu050Extra = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AEFES","AGHOL","ALARK","BRSAN","CCOLA","CIMSA","DOAS","EGEEN","GUBRF","ISGYO",
-        "KARSN","KONTR","LOGO","MAVI","ODAS","OYAKC","SMRTG","TAVHL","ULKER","ZOREN"
+        "AKSEN","ALARK","BRSAN","BTCIM","CANTE","CCOLA","CIMSA","ECILC","EFOR","GLRMK",
+        "HALKB","HEKTS","KTLEV","KUYAS","MIATK","OYAKC","PASEU","TRMET","TURSG","ULKER"
     };
 
     private static readonly HashSet<string> _xu100Extra = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ADEL","AFYON","AGESA","AKCNS","AKENR","AKFGY","AKGRT","ALKA","ANACM","AYGAZ",
-        "BAGFS","BJKAS","BOLUC","BSOKE","BTCIM","CEMTS","CLEBI","CWENE","DEVA","DMSAS",
-        "FENER","GESAN","GLYHO","GSRAY","HALKB","INDES","IPEKE","ISYAT","KAREL","KARTN",
-        "KLNMA","KOZAA","KTLEV","MAALT","NETAS","NUHCM","PRKME","RZGYO","SKBNK",
-        "TABGD","TRGYO","TSKB","TTRAK","TUKAS","VAKBN","VESBE","YATAS","ZRGYO"
+        "AKSA","ALTNY","ANSGR","ARCLK","BALSU","BERA","BRYAT","BSOKE","CVKMD","CWENE",
+        "DAPGM","DOAS","DOHOL","ENERY","ENJSA","ESEN","EUPWR","EUREN","FENER","GENIL",
+        "GESAN","GRSEL","GRTHO","GSRAY","IEYHO","ISMEN","IZENR","KLRHO","MAGEN","MAVI",
+        "MPARK","OBAMS","ODAS","ODINE","OTKAR","PAHOL","PATEK","PSGYO","QUAGR","RALYH",
+        "REEDR","SARKY","SKBNK","SOKM","TKFEN","TRENJ","TSKB","TUKAS","VESTL","ZOREN"
     };
 
     // ── Sektör endeksleri ─────────────────────────────────────────────────────────
@@ -87,7 +89,7 @@ public static class BistIndexCompositionSeed
 
     private static readonly HashSet<string> _xmana = new(StringComparer.OrdinalIgnoreCase)
     {
-        "EREGL","IPEKE","KRDMD","KOZAL","KOZAA","MAALT","PRKME","BRSAN","EGEEN"
+        "EREGL","IPEKE","KRDMD","KOZAL","TRMET","MAALT","PRKME","BRSAN","EGEEN"
     };
 
     private static readonly HashSet<string> _xspor = new(StringComparer.OrdinalIgnoreCase)
