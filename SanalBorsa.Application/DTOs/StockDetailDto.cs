@@ -16,5 +16,11 @@ public record StockDetailDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<PriceHistoryDto> RecentPrices,
-    IReadOnlyList<CorporateActionDto> CorporateActions
+    IReadOnlyList<CorporateActionDto> CorporateActions,
+    // Liste (StockDto) ile aynı quote alanları — modal/taç açılışında lastClose/hacim/değişim için
+    decimal? LastClose = null,
+    decimal? LastOpen = null,
+    decimal? PreviousClose = null,
+    long? LastVolume = null,
+    IReadOnlyList<decimal>? Sparkline = null
 );

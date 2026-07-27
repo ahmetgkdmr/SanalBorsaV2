@@ -166,7 +166,8 @@ public class StocksController : ControllerBase
     public IActionResult SyncBistPrices(
         [FromServices] IServiceScopeFactory scopeFactory,
         [FromQuery] bool full = false,
-        [FromQuery] string? symbol = null)
+        [FromQuery] string? symbol = null,
+        [FromQuery] int? lookbackDays = null)
     {
         _ = Task.Run(async () =>
         {
@@ -174,7 +175,7 @@ public class StocksController : ControllerBase
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(new SyncBistDailyPricesCommand(full, symbol));
+                var result = await mediator.Send(new SyncBistDailyPricesCommand(full, symbol, lookbackDays));
                 var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
                 logger.LogInformation(
                     "BIST price sync finished — attempted={A} synced={S} bars={B} failed={F} max={Max:yyyy-MM-dd}",
@@ -193,6 +194,7 @@ public class StocksController : ControllerBase
             message = "BIST ham fiyat sync başladı (TradingView WebSocket).",
             full,
             symbol,
+            lookbackDays,
         });
     }
 
