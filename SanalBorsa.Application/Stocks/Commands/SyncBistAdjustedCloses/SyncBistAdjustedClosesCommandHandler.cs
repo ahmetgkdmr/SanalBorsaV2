@@ -65,7 +65,11 @@ public class SyncBistAdjustedClosesCommandHandler
 
             try
             {
-                var from = stock.EarliestDataDate?.Date
+                DateTime from;
+                if (request.LookbackDays is > 0)
+                    from = to.AddDays(-request.LookbackDays.Value);
+                else
+                    from = stock.EarliestDataDate?.Date
                            ?? stock.LatestDataDate?.Date
                            ?? DateTime.UnixEpoch;
 
