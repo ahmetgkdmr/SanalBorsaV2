@@ -206,7 +206,8 @@ public class StocksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncAdjustedCloses(
         [FromServices] IServiceScopeFactory scopeFactory,
-        [FromQuery] string? symbol = null)
+        [FromQuery] string? symbol = null,
+        [FromQuery] int? lookbackDays = null)
     {
         _ = Task.Run(async () =>
         {
@@ -214,7 +215,8 @@ public class StocksController : ControllerBase
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(new SyncBistAdjustedClosesCommand(Symbol: symbol));
+                var result = await mediator.Send(
+                    new SyncBistAdjustedClosesCommand(Symbol: symbol, LookbackDays: lookbackDays));
                 var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
                 logger.LogInformation(
                     "BIST AdjustedClose sync finished — attempted={A} synced={S} rows={R} failed={F}",
@@ -232,6 +234,7 @@ public class StocksController : ControllerBase
         {
             message = "BIST AdjustedClose sync başladı (TradingView dividends).",
             symbol,
+            lookbackDays,
         });
     }
 

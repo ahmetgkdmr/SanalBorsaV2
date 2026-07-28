@@ -6,7 +6,10 @@ namespace SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 /// TradingView düzeltilmiş kapanışları çeker; mevcut fiyat satırlarında yalnızca
 /// <c>AdjustedClose</c> güncellenir (<c>Close</c> / OHLCV dokunulmaz).
 /// </summary>
-public record SyncBistAdjustedClosesCommand(bool Full = false, string? Symbol = null)
+public record SyncBistAdjustedClosesCommand(
+    bool Full = false,
+    string? Symbol = null,
+    int? LookbackDays = null)
     : IRequest<SyncBistAdjustedClosesResult>;
 
 public record SyncBistAdjustedClosesResult(
