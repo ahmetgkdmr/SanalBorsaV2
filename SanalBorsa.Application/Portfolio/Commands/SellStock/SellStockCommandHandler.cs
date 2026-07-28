@@ -53,7 +53,6 @@ public class SellStockCommandHandler : IRequestHandler<SellStockCommand, Portfol
 
         portfolio.Transactions.Add(new PortfolioTransaction
         {
-            Id          = Guid.NewGuid(),
             PortfolioId = portfolio.Id,
             Symbol      = symbol,
             MarketType  = MarketType.Bist,
@@ -65,7 +64,6 @@ public class SellStockCommandHandler : IRequestHandler<SellStockCommand, Portfol
         });
 
         portfolio.UpdatedAt = DateTime.UtcNow;
-        _uow.Portfolios.Update(portfolio);
         await _uow.SaveChangesAsync(cancellationToken);
 
         return PortfolioDto.FromEntity(portfolio);

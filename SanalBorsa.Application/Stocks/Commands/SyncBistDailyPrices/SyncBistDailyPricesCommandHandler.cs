@@ -11,7 +11,13 @@ public class SyncBistDailyPricesCommandHandler
     : IRequestHandler<SyncBistDailyPricesCommand, SyncBistDailyPricesResult>
 {
     /// <summary>Artımlı çekimde son günleri yeniden yazmak için geriye dönük pencere.</summary>
-    private const int OverlapDays = 3;
+    private const int OverlapDays = 5;
+
+    /// <summary>
+    /// Önceki kapanışa göre bu oranın dışında kalan bar'lar TV glitch / yarım seans kabul edilir.
+    /// (Gerçek bedelsiz/bölünme nadiren tüm piyasada aynı gün olur; sync overlap zaten düzeltir.)
+    /// </summary>
+    private const decimal MaxDayMoveRatio = 0.55m;
 
     private const int DelayMs = 40;
 
@@ -54,7 +60,7 @@ public class SyncBistDailyPricesCommandHandler
         if (stocks.Count == 0)
             return new SyncBistDailyPricesResult(0, 0, 0, 0, null, "Aktif BIST hissesi yok.");
 
-        var to = DateTime.UtcNow.Date;
+        var to = GetInclusiveToDate();
         var synced = 0;
         var barsTotal = 0;
         var failed = 0;
@@ -68,9 +74,13 @@ public class SyncBistDailyPricesCommandHandler
 
             try
             {
-                var from = request.Full || stock.LatestDataDate is null
-                    ? DateTime.UnixEpoch
-                    : stock.LatestDataDate.Value.Date.AddDays(-OverlapDays);
+                DateTime from;
+                if (request.Full || stock.LatestDataDate is null)
+                    from = DateTime.UnixEpoch;
+                else if (request.LookbackDays is > 0)
+                    from = to.AddDays(-request.LookbackDays.Value);
+                else
+                    from = stock.LatestDataDate.Value.Date.AddDays(-OverlapDays);
 
                 if (from > to)
                 {
@@ -80,16 +90,28 @@ public class SyncBistDailyPricesCommandHandler
                     continue;
                 }
 
-                var history = await _prices.GetDailyBarsAsync(stock.Symbol, from, to, cancellationToken);
-                if (history.Count == 0)
+                var historyRaw = await _prices.GetDailyBarsAsync(stock.Symbol, from, to, cancellationToken);
+                if (historyRaw.Count == 0)
                 {
                     failed++;
                     _logger.LogWarning("BIST ham sync: {Symbol} için bar gelmedi", stock.Symbol);
                     continue;
                 }
 
-                var rangeFrom = history.Min(h => h.Date).Date;
-                var rangeTo = history.Max(h => h.Date).Date;
+                var rangeFrom = historyRaw.Min(h => h.Date).Date;
+                var rangeTo = historyRaw.Max(h => h.Date).Date;
+                var history = FilterOutlierBars(stock.Symbol, historyRaw);
+
+                if (history.Count == 0)
+                {
+                    // Bozuk TV bar'larını sil, yerine bir şey yazma
+                    await _uow.PriceHistories.DeleteByStockIdAndDateRangeAsync(
+                        stock.Id, rangeFrom, rangeTo, cancellationToken);
+                    failed++;
+                    _logger.LogWarning("BIST ham sync: {Symbol} tüm barlar outlier filtresine takıldı", stock.Symbol);
+                    continue;
+                }
+
                 var now = DateTime.UtcNow;
 
                 await _uow.PriceHistories.DeleteByStockIdAndDateRangeAsync(
@@ -145,5 +167,78 @@ public class SyncBistDailyPricesCommandHandler
             stocks.Count, synced, barsTotal, failed, maxLatest);
 
         return new SyncBistDailyPricesResult(stocks.Count, synced, barsTotal, failed, maxLatest, null);
+    }
+
+    /// <summary>
+    /// BIST seansı kapanmadan (18:15 TR) bugünün barını yazma —
+    /// TV bazen yarım/bozuk "forming" mum gönderiyor.
+    /// </summary>
+    private static DateTime GetInclusiveToDate()
+    {
+        var utc = DateTime.UtcNow;
+        DateTime trNow;
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(
+                OperatingSystem.IsWindows() ? "Turkey Standard Time" : "Europe/Istanbul");
+            trNow = TimeZoneInfo.ConvertTimeFromUtc(utc, tz);
+        }
+        catch
+        {
+            trNow = utc.AddHours(3);
+        }
+
+        var todayTr = trNow.Date;
+        if (trNow.TimeOfDay < new TimeSpan(18, 15, 0))
+            return todayTr.AddDays(-1);
+
+        return todayTr;
+    }
+
+    private List<StockPriceHistory> FilterOutlierBars(
+        string symbol,
+        IReadOnlyList<StockPriceHistory> bars)
+    {
+        if (bars.Count <= 1) return bars.ToList();
+
+        var ordered = bars.OrderBy(b => b.Date).ToList();
+        var kept = new List<StockPriceHistory>(ordered.Count) { ordered[0] };
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var prev = ordered[i - 1];
+            var cur = ordered[i];
+
+            if (prev.Close <= 0 || !IsExtremeMove(prev.Close, cur.Close))
+            {
+                kept.Add(cur);
+                continue;
+            }
+
+            // İzole glitch: öncekiyle kopuk, sonraki (varsa) yine eski seviyeye yakın.
+            // Bedelsiz/bölünme: sonraki bar yeni seviyeyi sürdürür → tut.
+            var next = i + 1 < ordered.Count ? ordered[i + 1] : null;
+            var looksLikeGlitch = next is null
+                || IsExtremeMove(cur.Close, next.Close) && !IsExtremeMove(prev.Close, next.Close);
+
+            if (looksLikeGlitch)
+            {
+                _logger.LogWarning(
+                    "BIST ham sync outlier atıldı: {Symbol} {Date:yyyy-MM-dd} close={Close} prev={Prev} ratio={Ratio:F3}",
+                    symbol, cur.Date, cur.Close, prev.Close, cur.Close / prev.Close);
+                continue;
+            }
+
+            kept.Add(cur);
+        }
+
+        return kept;
+    }
+
+    private static bool IsExtremeMove(decimal from, decimal to)
+    {
+        if (from <= 0) return false;
+        var ratio = to / from;
+        return ratio < (1m - MaxDayMoveRatio) || ratio > (1m + MaxDayMoveRatio * 2);
     }
 }

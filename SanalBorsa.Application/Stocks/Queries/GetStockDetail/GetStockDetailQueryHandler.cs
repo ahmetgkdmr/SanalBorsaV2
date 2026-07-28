@@ -42,6 +42,14 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
             })
             .ToList();
 
+        // recentPrices tarihe göre artan; son iki gün → close / previousClose / volume
+        var latest = recentPrices.Count > 0 ? recentPrices[^1] : null;
+        var previous = recentPrices.Count > 1 ? recentPrices[^2] : null;
+        var sparkline = recentPrices
+            .TakeLast(28)
+            .Select(p => p.Close)
+            .ToList();
+
         return new StockDetailDto(
             stock.Id,
             stock.Symbol,
@@ -58,6 +66,11 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
             stock.CreatedAt,
             stock.UpdatedAt,
             priceDtos,
-            actionDtos);
+            actionDtos,
+            LastClose: latest?.Close,
+            LastOpen: latest?.Open,
+            PreviousClose: previous?.Close,
+            LastVolume: latest?.Volume,
+            Sparkline: sparkline);
     }
 }

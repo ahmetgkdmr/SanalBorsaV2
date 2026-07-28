@@ -441,7 +441,12 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
                 continue;
 
             if (!seen.Add(date))
-                continue;
+            {
+                // Aynı güne birden fazla bar gelirse sonuncuyu tut (forming → finalized).
+                var idx = list.FindIndex(b => b.Date == date);
+                if (idx >= 0) list.RemoveAt(idx);
+                else continue;
+            }
 
             var c = Math.Round((decimal)close, 4);
             list.Add(new StockPriceHistory
