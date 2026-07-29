@@ -14,6 +14,6 @@
 **/*.log
 **/*.md
 
-# Yerel secret kopyaları (gerekirse Render env ile ver)
+# Yerel secret kopyaları
 **/firebase-service-account.json
 **/appsettings.Development.json

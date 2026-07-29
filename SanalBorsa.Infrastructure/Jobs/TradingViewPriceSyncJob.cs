@@ -9,7 +9,7 @@ using SanalBorsa.Application.Stocks.Commands.SyncStocks;
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Her gün 19:00 Türkiye — metadata + BIST ham Close (TV) + AdjustedClose (TV dividends).
+/// Her gün 18:30 Türkiye — metadata + BIST ham Close (TV) + AdjustedClose (TV dividends).
 /// </summary>
 [DisallowConcurrentExecution]
 public class TradingViewPriceSyncJob : IJob

@@ -7,7 +7,7 @@ using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Nightly 23:00 Turkey — incremental KAP check for new corporate actions
+/// Nightly 18:35 Turkey — incremental KAP check for new corporate actions
 /// (bedelsiz / bedelli+rüçhan / nakit temettü) after the latest DB date.
 /// Full historical bootstrap uses POST …/corporate-actions/sync?full=true (İş Yatırım).
 /// </summary>

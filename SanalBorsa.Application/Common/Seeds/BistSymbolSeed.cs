@@ -64,7 +64,7 @@ public static class BistSymbolSeed
         "TETMT", "THYAO", "TIRE", "TKFEN", "TKNSA", "TLMAN", "TMPOL", "TNZTP",
         "TOASO", "TOKAK", "TRGYO", "TRILC", "TSGYO", "TSKB", "TSPOR", "TTKOM",
         "TTRAK", "TUCLK", "TURIA", "TURGG", "TURSG", "UFUK", "ULUFA", "ULUSE",
-        "ULUUN", "UMPAS", "UNLU", "USAK", "USDTR", "VAKBN", "VAKFN", "VAKGY",
+        "ULUUN", "UNLU", "USAK", "USDTR", "VAKBN", "VAKFN", "VAKGY",
         "VANGD", "VBTYZ", "VERTU", "VESBE", "VESTL", "VKGYO", "VKING", "YATAS",
         "YESIL", "YGYO", "YIGIT", "YKSLN", "YYLGD", "ZEDUR", "ZOREN", "ZRGYO"
     ];

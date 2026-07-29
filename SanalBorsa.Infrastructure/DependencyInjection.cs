@@ -170,35 +170,35 @@ public static class DependencyInjection
 
         services.AddScoped<IBistSymbolProvider, KapBistSymbolProvider>();
 
-        // ── Quartz.NET (saatler Türkiye saati notlarıyla) ───────────────────
+        // ── Quartz.NET (saatler Türkiye saati) ───────────────────────────────
         services.AddQuartz(q =>
         {
             var turkeyTz = TimeZoneInfo.FindSystemTimeZoneById(
                 OperatingSystem.IsWindows() ? "Turkey Standard Time" : "Europe/Istanbul");
 
-            // 19:00 TR — metadata + BIST ham günlük fiyat (TradingView WS)
+            // 18:30 TR — metadata + BIST ham günlük fiyat (TradingView WS) + AdjustedClose
             var tvKey = new JobKey("TradingViewPriceSyncJob", "DataSync");
             q.AddJob<TradingViewPriceSyncJob>(opts => opts.WithIdentity(tvKey));
             q.AddTrigger(opts => opts
                 .ForJob(tvKey)
                 .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
-                .WithCronSchedule("0 0 19 * * ?", x => x.InTimeZone(turkeyTz)));
+                .WithCronSchedule("0 30 18 * * ?", x => x.InTimeZone(turkeyTz)));
 
-            // 23:00 TR — KAP corporate actions (incremental)
+            // 18:35 TR — KAP corporate actions (incremental)
             var corpKey = new JobKey("CorporateActionSyncJob", "DataSync");
             q.AddJob<CorporateActionSyncJob>(opts => opts.WithIdentity(corpKey));
             q.AddTrigger(opts => opts
                 .ForJob(corpKey)
                 .WithIdentity("CorporateActionSyncTrigger", "DataSync")
-                .WithCronSchedule("0 0 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .WithCronSchedule("0 35 18 * * ?", x => x.InTimeZone(turkeyTz)));
 
-            // 23:05 TR — dönem şampiyonları (top gainers)
+            // 23:00 TR — dönem şampiyonları (top gainers)
             var topKey = new JobKey("TopGainersJob", "DataSync");
             q.AddJob<TopGainersJob>(opts => opts.WithIdentity(topKey));
             q.AddTrigger(opts => opts
                 .ForJob(topKey)
                 .WithIdentity("TopGainersTrigger", "DataSync")
-                .WithCronSchedule("0 5 20 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .WithCronSchedule("0 0 23 * * ?", x => x.InTimeZone(turkeyTz)));
 
             // 04:30 TR — Binance USDT günlük kline
             var cryptoHistKey = new JobKey("CryptoHistorySyncJob", "DataSync");
@@ -208,13 +208,13 @@ public static class DependencyInjection
                 .WithIdentity("CryptoHistorySyncTrigger", "DataSync")
                 .WithCronSchedule("0 30 1 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
 
-            // 05:30 TR — parite sync + zaman makinesi lider tablosu
+            // 02:00 TR — parite sync + zaman makinesi lider tablosu
             var leadersKey = new JobKey("TimeMachineLeadersJob", "DataSync");
             q.AddJob<TimeMachineLeadersJob>(opts => opts.WithIdentity(leadersKey));
             q.AddTrigger(opts => opts
                 .ForJob(leadersKey)
                 .WithIdentity("TimeMachineLeadersTrigger", "DataSync")
-                .WithCronSchedule("0 30 2 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
+                .WithCronSchedule("0 0 2 * * ?", x => x.InTimeZone(turkeyTz)));
         });
 
         services.AddQuartzHostedService(opts => opts.WaitForJobsToComplete = true);

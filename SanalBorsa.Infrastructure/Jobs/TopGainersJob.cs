@@ -8,7 +8,7 @@ using SanalBorsa.Domain.Entities;
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Her gece 23:05 Türkiye saati — BIST ve Crypto için 5 dönem şampiyonunu
+/// Her gece 23:00 Türkiye saati — BIST ve Crypto için 5 dönem şampiyonunu
 /// (1h / 1a / 1y / 5y / 10y) DB'deki son kapanışa göre yeniden hesaplar.
 /// </summary>
 [DisallowConcurrentExecution]
