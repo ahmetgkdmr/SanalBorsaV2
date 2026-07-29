@@ -35,12 +35,14 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, L
             tokens.ExpiresAt,
             new LoginWithFirebase.UserDto(
                 user.Id,
-                user.DisplayName,
+                user.Username,
+                string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName,
                 user.Email,
                 user.PhoneNumber,
                 user.AvatarUrl,
                 user.Provider.ToString().ToLowerInvariant(),
                 portfolio?.Cash ?? 1_000_000m,
-                portfolio?.CashUsd ?? 100_000m));
+                portfolio?.CashUsd ?? 100_000m,
+                user.ShowTradeHistoryPublic));
     }
 }

@@ -20,19 +20,8 @@ public record PortfolioDto(
             h.MarketType == MarketType.Crypto ? "crypto" : "bist",
             h.Quantity,
             h.AvgCost)).ToList(),
-        p.Transactions
-            .OrderByDescending(t => t.ExecutedAt)
-            .Select(t => new TransactionDto(
-                t.Id,
-                t.Symbol,
-                t.MarketType == MarketType.Crypto ? "crypto" : "bist",
-                t.Side == TxSide.Buy ? "buy" : "sell",
-                t.Quantity,
-                t.Price,
-                t.Total,
-                t.FillBreakdownJson,
-                t.ExecutedAt))
-            .ToList());
+        // İşlem geçmişi ayrı endpoint'ten sayfalanır; buraya yüklenmez.
+        Array.Empty<TransactionDto>());
 }
 
 public record HoldingDto(

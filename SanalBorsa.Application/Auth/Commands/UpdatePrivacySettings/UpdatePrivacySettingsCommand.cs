@@ -3,24 +3,34 @@ using SanalBorsa.Application.Auth.Commands.LoginWithFirebase;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Domain.Interfaces;
 
-namespace SanalBorsa.Application.Auth.Queries.GetMe;
+namespace SanalBorsa.Application.Auth.Commands.UpdatePrivacySettings;
 
-public class GetMeQueryHandler : IRequestHandler<GetMeQuery, UserDto>
+public record UpdatePrivacySettingsCommand(Guid UserId, bool ShowTradeHistoryPublic)
+    : IRequest<UserDto>;
+
+public class UpdatePrivacySettingsCommandHandler
+    : IRequestHandler<UpdatePrivacySettingsCommand, UserDto>
 {
     private readonly IUnitOfWork _uow;
 
-    public GetMeQueryHandler(IUnitOfWork uow)
+    public UpdatePrivacySettingsCommandHandler(IUnitOfWork uow)
     {
         _uow = uow;
     }
 
-    public async Task<UserDto> Handle(GetMeQuery request, CancellationToken cancellationToken)
+    public async Task<UserDto> Handle(
+        UpdatePrivacySettingsCommand request,
+        CancellationToken cancellationToken)
     {
         var user = await _uow.Users.GetByIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
 
-        var portfolio = await _uow.Portfolios.GetByUserIdAsync(user.Id, cancellationToken);
+        user.ShowTradeHistoryPublic = request.ShowTradeHistoryPublic;
+        user.UpdatedAt = DateTime.UtcNow;
+        _uow.Users.Update(user);
+        await _uow.SaveChangesAsync(cancellationToken);
 
+        var portfolio = await _uow.Portfolios.GetByUserIdAsync(user.Id, cancellationToken);
         return new UserDto(
             user.Id,
             user.Username,

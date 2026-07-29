@@ -12,6 +12,18 @@ public class UserRepository : BaseRepository<User>, IUserRepository
     public async Task<User?> GetByFirebaseUidAsync(string uid, CancellationToken ct = default)
         => await DbSet.FirstOrDefaultAsync(u => u.FirebaseUid == uid, ct);
 
+    public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default)
+    {
+        var normalized = username.Trim().ToLowerInvariant();
+        return await DbSet.FirstOrDefaultAsync(u => u.Username.ToLower() == normalized, ct);
+    }
+
+    public async Task<bool> UsernameExistsAsync(string username, CancellationToken ct = default)
+    {
+        var normalized = username.Trim().ToLowerInvariant();
+        return await DbSet.AnyAsync(u => u.Username.ToLower() == normalized, ct);
+    }
+
     public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
         => await DbSet.FirstOrDefaultAsync(u => u.Email == email, ct);
 

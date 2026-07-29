@@ -64,8 +64,9 @@ public static class DependencyInjection
         services.AddSingleton<FirebaseInitializer>();
 
 
-        // ── JWT ───────────────────────────────────────────────────────────────
+        // ── JWT + password hashing ────────────────────────────────────────────
         services.AddScoped<IJwtService, JwtService>();
+        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 
         // ── Yahoo Finance HTTP client ──────────────────────────────────────────
         services.AddHttpClient("YahooFinance", client =>

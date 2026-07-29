@@ -1,4 +1,5 @@
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
@@ -17,6 +18,8 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
 
     public async Task<PortfolioDto> Handle(BuyStockCommand request, CancellationToken cancellationToken)
     {
+        BistTradingHours.EnsureOpen();
+
         if (request.Lots <= 0)
             throw new InvalidOperationException("Lot sayısı 0'dan büyük olmalıdır.");
 

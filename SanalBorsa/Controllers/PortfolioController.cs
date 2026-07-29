@@ -8,6 +8,7 @@ using SanalBorsa.Application.Portfolio.Commands.BuyStock;
 using SanalBorsa.Application.Portfolio.Commands.SellCrypto;
 using SanalBorsa.Application.Portfolio.Commands.SellStock;
 using SanalBorsa.Application.Portfolio.Queries.GetPortfolio;
+using SanalBorsa.Application.Portfolio.Queries.GetPortfolioTransactions;
 
 namespace SanalBorsa.API.Controllers;
 
@@ -24,12 +25,26 @@ public class PortfolioController : ControllerBase
         _mediator = mediator;
     }
 
-    /// <summary>Kullanıcının portföyünü döner.</summary>
+    /// <summary>Kullanıcının portföyünü döner (nakit + holdings; işlem geçmişi yok).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(PortfolioDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
         var result = await _mediator.Send(new GetPortfolioQuery(GetUserId()), ct);
+        return Ok(result);
+    }
+
+    /// <summary>İşlem geçmişi — sayfalı.</summary>
+    [HttpGet("transactions")]
+    [ProducesResponseType(typeof(PagedTransactionsDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTransactions(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken ct = default)
+    {
+        var result = await _mediator.Send(
+            new GetPortfolioTransactionsQuery(GetUserId(), page, pageSize),
+            ct);
         return Ok(result);
     }
 

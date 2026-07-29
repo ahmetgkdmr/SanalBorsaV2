@@ -11,13 +11,20 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.ToTable("Users");
         builder.HasKey(u => u.Id);
 
-        builder.Property(u => u.FirebaseUid).HasMaxLength(128).IsRequired();
-        builder.HasIndex(u => u.FirebaseUid).IsUnique();
+        builder.Property(u => u.FirebaseUid).HasMaxLength(128);
+        builder.HasIndex(u => u.FirebaseUid)
+            .IsUnique()
+            .HasFilter("[FirebaseUid] IS NOT NULL");
+
+        builder.Property(u => u.Username).HasMaxLength(32).IsRequired();
+        builder.HasIndex(u => u.Username).IsUnique();
 
         builder.Property(u => u.DisplayName).HasMaxLength(100).IsRequired();
         builder.Property(u => u.Email).HasMaxLength(256);
         builder.Property(u => u.PhoneNumber).HasMaxLength(20);
         builder.Property(u => u.AvatarUrl).HasMaxLength(500);
+        builder.Property(u => u.PasswordHash).HasMaxLength(500);
+        builder.Property(u => u.ShowTradeHistoryPublic).HasDefaultValue(true);
 
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("[PhoneNumber] IS NOT NULL");
