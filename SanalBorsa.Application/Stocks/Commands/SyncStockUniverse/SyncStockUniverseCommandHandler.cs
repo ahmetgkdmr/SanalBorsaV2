@@ -28,6 +28,7 @@ public class SyncStockUniverseCommandHandler
         var removed = new List<string>();
         var skippedExisting = 0;
         var skippedMissing = 0;
+        var now = DateTime.UtcNow;
 
         foreach (var entry in request.Add)
         {
@@ -35,9 +36,22 @@ public class SyncStockUniverseCommandHandler
             if (string.IsNullOrWhiteSpace(symbol))
                 continue;
 
-            if (await _uow.Stocks.ExistsAsync(symbol, cancellationToken))
+            var existing = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken);
+            if (existing is not null)
             {
-                skippedExisting++;
+                if (!existing.IsActive)
+                {
+                    existing.IsActive = true;
+                    existing.UpdatedAt = now;
+                    if (!string.IsNullOrWhiteSpace(entry.Name))
+                        existing.Name = entry.Name.Trim();
+                    _uow.Stocks.Update(existing);
+                    added.Add(symbol);
+                }
+                else
+                {
+                    skippedExisting++;
+                }
                 continue;
             }
 
@@ -48,10 +62,11 @@ public class SyncStockUniverseCommandHandler
                 Name = string.IsNullOrWhiteSpace(entry.Name) ? symbol : entry.Name.Trim(),
                 Currency = "TRY",
                 Exchange = "IST",
+                MarketType = MarketType.Bist,
                 IsActive = true,
                 NeedsHistoryRefresh = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                UpdatedAt = now,
             };
 
             await _uow.Stocks.AddAsync(stock, cancellationToken);
@@ -74,25 +89,35 @@ public class SyncStockUniverseCommandHandler
                 continue;
             }
 
-            // Never delete seeded market instruments via this path
+            // Never deactivate seeded market instruments via this path
             if (MarketInstrumentSeed.IsMarketInstrument(stock.Exchange))
             {
-                _logger.LogWarning("Skip removing market instrument {Symbol}", symbol);
+                _logger.LogWarning("Skip deactivating market instrument {Symbol}", symbol);
                 skippedMissing++;
                 continue;
             }
 
-            await _uow.PriceHistories.DeleteAllByStockIdAsync(stock.Id, cancellationToken);
-            // Corporate actions cascade with stock delete via EF config
-            _uow.Stocks.Remove(stock);
+            if (!stock.IsActive)
+            {
+                skippedMissing++;
+                continue;
+            }
+
+            // Soft-delete: pasife çek, fiyat / corporate action silme
+            stock.IsActive = false;
+            stock.UpdatedAt = now;
+            _uow.Stocks.Update(stock);
             removed.Add(symbol);
+            _logger.LogWarning(
+                "BIST soft-deactivate (universe remove): {Symbol} — fiyat geçmişi korundu",
+                symbol);
         }
 
         if (removed.Count > 0)
             await _uow.SaveChangesAsync(cancellationToken);
 
         _logger.LogWarning(
-            "Universe sync — added={Added} removed={Removed} skipExisting={SkipEx} skipMissing={SkipMis}",
+            "Universe sync — added/reactivated={Added} softDeactivated={Removed} skipExisting={SkipEx} skipMissing={SkipMis}",
             added.Count, removed.Count, skippedExisting, skippedMissing);
 
         return new SyncStockUniverseResult(

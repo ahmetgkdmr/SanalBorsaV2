@@ -1,3 +1,4 @@
+using System.Text;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Configuration;
@@ -38,14 +39,11 @@ public sealed class FirebaseInitializer
             {
                 if (FirebaseApp.DefaultInstance is null)
                 {
-                    var credentialPath = ResolveCredentialPath(_config["Firebase:ServiceAccountPath"]);
-                    if (credentialPath is not null)
+                    if (TryCreateFromJson(_config["Firebase:ServiceAccountJson"], logger)
+                        || TryCreateFromJson(_config["FIREBASE_SERVICE_ACCOUNT_JSON"], logger)
+                        || TryCreateFromFile(_config["Firebase:ServiceAccountPath"], logger))
                     {
-                        FirebaseApp.Create(new AppOptions
-                        {
-                            Credential = GoogleCredential.FromFile(credentialPath),
-                        });
-                        logger?.LogInformation("Firebase Admin SDK başlatıldı: {Path}", credentialPath);
+                        // ok
                     }
                     else
                     {
@@ -62,10 +60,10 @@ public sealed class FirebaseInitializer
                 _ready = false;
                 logger?.LogWarning(
                     ex,
-                    "Firebase başlatılamadı. '{File}' dosyasını API proje köküne koyun " +
+                    "Firebase başlatılamadı. Render'da FIREBASE_SERVICE_ACCOUNT_JSON env, " +
+                    "veya API kökünde firebase-service-account.json gerekli. " +
                     "(Firebase Console → Project settings → Service accounts → Generate new private key). " +
                     "Configured path: {Configured}",
-                    "firebase-service-account.json",
                     _config["Firebase:ServiceAccountPath"]);
             }
             finally
@@ -73,6 +71,45 @@ public sealed class FirebaseInitializer
                 _attempted = true;
             }
         }
+    }
+
+    private bool TryCreateFromJson(string? json, ILogger? logger)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+
+        var trimmed = json.Trim();
+        // Render bazen Base64 ile saklar
+        if (!trimmed.StartsWith('{'))
+        {
+            try
+            {
+                trimmed = Encoding.UTF8.GetString(Convert.FromBase64String(trimmed));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        FirebaseApp.Create(new AppOptions
+        {
+            Credential = GoogleCredential.FromJson(trimmed),
+        });
+        logger?.LogInformation("Firebase Admin SDK JSON credential ile başlatıldı (env/config).");
+        return true;
+    }
+
+    private bool TryCreateFromFile(string? configuredPath, ILogger? logger)
+    {
+        var credentialPath = ResolveCredentialPath(configuredPath);
+        if (credentialPath is null) return false;
+
+        FirebaseApp.Create(new AppOptions
+        {
+            Credential = GoogleCredential.FromFile(credentialPath),
+        });
+        logger?.LogInformation("Firebase Admin SDK başlatıldı: {Path}", credentialPath);
+        return true;
     }
 
     private string? ResolveCredentialPath(string? configured)

@@ -6,6 +6,7 @@ using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
+using SanalBorsa.Application.Stocks.Commands.DeactivateInactiveBistStocks;
 using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
@@ -294,8 +295,8 @@ public class StocksController : ControllerBase
     }
 
     /// <summary>
-    /// Adds missing BIST symbols and/or removes obsolete tickers (prices cascade-deleted).
-    /// Market instruments (INDEX/FX) are never removed through this endpoint.
+    /// Eksik BIST sembollerini ekler / yeniden aktif eder; Remove listesini soft-pasife çeker.
+    /// Fiyat geçmişi silinmez. Market instruments (INDEX/FX) dokunulmaz.
     /// </summary>
     [HttpPost("universe/sync")]
     [ProducesResponseType(typeof(SyncStockUniverseResult), StatusCodes.Status200OK)]
@@ -307,6 +308,51 @@ public class StocksController : ControllerBase
             new SyncStockUniverseCommand(body.Add ?? [], body.Remove ?? []),
             ct);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// TradingView'den son N günde bar alınamayan aktif BIST hisselerini soft-pasife çeker.
+    /// Fiyat geçmişi korunur. Arka planda çalışır.
+    /// </summary>
+    [HttpPost("deactivate-inactive")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public IActionResult DeactivateInactive(
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromQuery] int lookbackDays = 60)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+                var result = await mediator.Send(
+                    new DeactivateInactiveBistStocksCommand(lookbackDays));
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
+                logger.LogInformation(
+                    "BIST inactive deactivate finished — checked={C} deactivated={D} probeFail={F} symbols=[{S}]",
+                    result.Checked, result.Deactivated, result.FailedProbe,
+                    string.Join(',', result.DeactivatedSymbols));
+
+                if (result.Deactivated > 0)
+                {
+                    await mediator.Send(new ComputeTopGainersCommand(MarketType.Bist));
+                    logger.LogInformation("TopGainers recomputed after BIST soft-deactivate");
+                }
+            }
+            catch (Exception ex)
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
+                logger.LogError(ex, "Background BIST inactive deactivate failed");
+            }
+        });
+
+        return Accepted(new
+        {
+            message = "BIST inactive soft-deactivate başladı (TV boş → IsActive=false, fiyatlar silinmez).",
+            lookbackDays,
+        });
     }
 }
 
