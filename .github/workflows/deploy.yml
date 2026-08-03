@@ -28,7 +28,7 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         source: "publish/*"
         target: "/var/www/backend"
-        strip_prefix: "publish"
+        strip_components: 1
 
     - name: Restart Backend Service
       uses: appleboy/ssh-action@v1.0.3
