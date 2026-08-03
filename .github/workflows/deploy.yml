@@ -10,15 +10,15 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
 
-    - name: Build & Publish
-      run: dotnet publish -c Release -o ./publish
+    - name: Build & Publish API
+      run: dotnet publish SanalBorsa/SanalBorsa.csproj -c Release -o ./publish
 
     - name: Deploy Files via SSH
       uses: appleboy/scp-action@master
