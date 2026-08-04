@@ -1,7 +1,6 @@
+using Hangfire;
 using MediatR;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Quartz;
 using SanalBorsa.Application.Indices.Commands.SyncParityHistory;
 using SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
 
@@ -11,33 +10,32 @@ namespace SanalBorsa.Infrastructure.Jobs;
 /// Her gece BIST ve kripto fiyat senkronları bittikten sonra çalışır:
 /// önce USD/TRY · EUR/TRY · gram altın serilerini tazeler, ardından
 /// "o gün alsaydın bugün" tablosunu baştan üretir.
+/// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
 /// <remarks>
 /// Tablo tamamen yeniden üretilir çünkü getiri son kapanışa göre ölçülür —
 /// bugünün fiyatı değişince geçmişteki her günün sıralaması da değişir.
 /// </remarks>
-[DisallowConcurrentExecution]
-public class TimeMachineLeadersJob : IJob
+[DisableConcurrentExecution(timeoutInSeconds: 600)]
+[AutomaticRetry(Attempts = 3)]
+public sealed class TimeMachineLeadersJob
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IMediator _mediator;
     private readonly ILogger<TimeMachineLeadersJob> _logger;
 
-    public TimeMachineLeadersJob(IServiceScopeFactory scopeFactory, ILogger<TimeMachineLeadersJob> logger)
+    public TimeMachineLeadersJob(IMediator mediator, ILogger<TimeMachineLeadersJob> logger)
     {
-        _scopeFactory = scopeFactory;
+        _mediator = mediator;
         _logger = logger;
     }
 
-    public async Task Execute(IJobExecutionContext context)
+    public async Task RunAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("TimeMachineLeadersJob started at {Time}", DateTimeOffset.UtcNow);
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-
         try
         {
-            var parity = await mediator.Send(new SyncParityHistoryCommand(), context.CancellationToken);
+            var parity = await _mediator.Send(new SyncParityHistoryCommand(), ct);
             foreach (var detail in parity.Details)
             {
                 _logger.LogInformation(
@@ -48,8 +46,7 @@ public class TimeMachineLeadersJob : IJob
                     detail.Error is null ? string.Empty : $" — HATA: {detail.Error}");
             }
 
-            var result = await mediator.Send(
-                new ComputeTimeMachineLeadersCommand(), context.CancellationToken);
+            var result = await _mediator.Send(new ComputeTimeMachineLeadersCommand(), ct);
 
             foreach (var category in result.Categories)
             {
@@ -69,7 +66,7 @@ public class TimeMachineLeadersJob : IJob
         catch (Exception ex)
         {
             _logger.LogError(ex, "TimeMachineLeadersJob failed");
-            throw new JobExecutionException(ex, refireImmediately: false);
+            throw;
         }
     }
 }

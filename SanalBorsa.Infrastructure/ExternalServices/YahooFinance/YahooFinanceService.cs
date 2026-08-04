@@ -174,7 +174,7 @@ public class YahooFinanceService : IYahooFinanceService
                         ActionType = CorporateActionType.Dividend,
                         ActionDate = DateTimeOffset.FromUnixTimeSeconds(div.Date).UtcDateTime.Date,
                         Value = Math.Round(div.Amount, 6),
-                        Description = $"Cash dividend: {div.Amount:F4} TRY per share",
+                        Description = $"Cash dividend: {div.Amount:F4} per share",
                         CreatedAt = DateTime.UtcNow
                     });
                 }
@@ -236,16 +236,18 @@ public class YahooFinanceService : IYahooFinanceService
             if (meta is null)
                 return null;
 
-            var bist = yahooSymbol.Replace(".IS", "", StringComparison.OrdinalIgnoreCase);
+            // BIST sembolleri ".IS" ekiyle gelir (THYAO.IS); ABD sembollerinde ek yok (AAPL).
+            var isBist = yahooSymbol.EndsWith(".IS", StringComparison.OrdinalIgnoreCase);
+            var localSymbol = isBist ? yahooSymbol[..^3] : yahooSymbol;
 
             return new StockMetadata(
-                Symbol: bist,
+                Symbol: localSymbol,
                 YahooSymbol: yahooSymbol,
-                LongName: meta.LongName ?? meta.ShortName ?? bist,
+                LongName: meta.LongName ?? meta.ShortName ?? localSymbol,
                 Sector: null,
                 Industry: null,
-                Currency: meta.Currency ?? "TRY",
-                Exchange: meta.ExchangeName ?? "IST"
+                Currency: meta.Currency ?? (isBist ? "TRY" : "USD"),
+                Exchange: meta.ExchangeName ?? (isBist ? "IST" : "US")
             );
         }
         catch (Exception ex)

@@ -1,7 +1,6 @@
+using Hangfire;
 using MediatR;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Quartz;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
 using SanalBorsa.Domain.Entities;
 
@@ -10,33 +9,30 @@ namespace SanalBorsa.Infrastructure.Jobs;
 /// <summary>
 /// Her gece 23:00 Türkiye saati — BIST ve Crypto için 5 dönem şampiyonunu
 /// (1h / 1a / 1y / 5y / 10y) DB'deki son kapanışa göre yeniden hesaplar.
+/// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
-[DisallowConcurrentExecution]
-public class TopGainersJob : IJob
+[DisableConcurrentExecution(timeoutInSeconds: 600)]
+[AutomaticRetry(Attempts = 3)]
+public sealed class TopGainersJob
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IMediator _mediator;
     private readonly ILogger<TopGainersJob> _logger;
 
-    public TopGainersJob(IServiceScopeFactory scopeFactory, ILogger<TopGainersJob> logger)
+    public TopGainersJob(IMediator mediator, ILogger<TopGainersJob> logger)
     {
-        _scopeFactory = scopeFactory;
+        _mediator = mediator;
         _logger = logger;
     }
 
-    public async Task Execute(IJobExecutionContext context)
+    public async Task RunAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("TopGainersJob started at {Time}", DateTimeOffset.UtcNow);
-
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
         try
         {
             foreach (var market in new[] { MarketType.Bist, MarketType.Crypto })
             {
-                var result = await mediator.Send(
-                    new ComputeTopGainersCommand(market),
-                    context.CancellationToken);
+                var result = await _mediator.Send(new ComputeTopGainersCommand(market), ct);
                 _logger.LogInformation(
                     "TopGainersJob {Market} — AsOf={AsOf:yyyy-MM-dd} Week={Week} Month={Month} Year={Year} FiveY={FiveY} TenY={TenY}",
                     result.MarketType,
@@ -51,7 +47,7 @@ public class TopGainersJob : IJob
         catch (Exception ex)
         {
             _logger.LogError(ex, "TopGainersJob failed");
-            throw new JobExecutionException(ex, refireImmediately: false);
+            throw;
         }
     }
 }

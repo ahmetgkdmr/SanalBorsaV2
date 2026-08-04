@@ -14,7 +14,7 @@ namespace SanalBorsa.Infrastructure.Jobs;
 /// <summary>
 /// Startup bootstrap: eksik sembol/endeks verisini doldurur.
 /// Veri stale ise bir kez BIST ham sync çalıştırır.
-/// Günlük planlı sync Quartz <see cref="TradingViewPriceSyncJob"/> (18:30 TR) üzerinden yapılır.
+/// Günlük planlı sync Hangfire recurring job <see cref="TradingViewPriceSyncJob"/> (18:30 TR) üzerinden yapılır.
 /// </summary>
 public class InitialDataSeedService : BackgroundService
 {

@@ -35,9 +35,14 @@ public class StockPriceHistoryConfiguration : IEntityTypeConfiguration<StockPric
             .IsRequired()
             .HasPrecision(18, 4);
 
+        // Diğer fiyat alanlarından farklı olarak daha yüksek hassasiyet gerekiyor: bu, gerçek bir
+        // işlem fiyatı değil, split+temettü dahil kümülatif getiriyi yansıtan türetilmiş bir değer —
+        // 30+ yıllık, çok sayıda bedelsiz/bedelli geçirmiş BIST hisselerinde (ör. GARAN 1991) kuruşun
+        // çok altına inebiliyor (₺0,00012 gibi). 4 ondalık basamak bunu ₺0,0001'e yuvarlayıp Zaman
+        // Makinesi hesabında %20+ hataya yol açıyordu (bkz. proje sohbeti — GARAN doğrulama testi).
         builder.Property(p => p.AdjustedClose)
             .IsRequired()
-            .HasPrecision(18, 4);
+            .HasPrecision(24, 10);
 
         builder.Property(p => p.Volume)
             .IsRequired();

@@ -19,8 +19,9 @@ public class StockPriceHistory
     public decimal Close { get; set; }
 
     /// <summary>
-    /// TradingView düzeltilmiş kapanış (adjustment=dividends).
-    /// Ham seri <see cref="Close"/>; bu alan TV'den ayrı çekilir.
+    /// TradingView düzeltilmiş kapanış (adjustment=dividends) — split + temettü dahil toplam
+    /// getiri. Zaman Makinesi'nin para hesabı bu alanın oranını kullanıyor; ham Open/High/Low/Close/
+    /// Volume'a hiç dokunulmuyor, tek ihtiyacımız kapanıştan kapanışa oran.
     /// </summary>
     public decimal AdjustedClose { get; set; }
 

@@ -86,6 +86,16 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
         CancellationToken ct = default)
         => FetchBarsAsync(tvSymbol.Trim(), from, to, adjustment: "none", ct);
 
+    public async Task<IReadOnlyDictionary<DateTime, decimal>> GetAdjustedClosesByTvSymbolAsync(
+        string tvSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        var bars = await FetchBarsAsync(tvSymbol.Trim(), from, to, adjustment: "dividends", ct);
+        return bars.ToDictionary(b => b.Date.Date, b => b.Close);
+    }
+
     private async Task<IReadOnlyList<StockPriceHistory>> FetchBarsAsync(
         string symbol,
         DateTime from,
@@ -134,7 +144,7 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
                 return [];
             }
 
-            var bars = ParseBars(raw, fromDate, toDate);
+            var bars = ParseBars(raw, fromDate, toDate, adjustment);
             if (bars.Count > 0)
             {
                 _logger.LogInformation(
@@ -415,11 +425,17 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
         await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
     }
 
-    private static List<StockPriceHistory> ParseBars(string raw, DateTime fromDate, DateTime toDate)
+    private static List<StockPriceHistory> ParseBars(string raw, DateTime fromDate, DateTime toDate, string adjustment)
     {
         var now = DateTime.UtcNow;
         var list = new List<StockPriceHistory>();
         var seen = new HashSet<DateTime>();
+        // "dividends" (düzenlenmiş) seride kümülatif getiri çok eski/çok bölünmüş hisselerde
+        // kuruşun binde birine inebiliyor (ör. GARAN 1991: ₺0,00012) — 4 basamağa yuvarlama bunu
+        // sıfıra yakın bir sabite ezip Zaman Makinesi hesabını %20+ saptırıyordu. Ham ("none") seri
+        // gerçek işlem fiyatı olduğu için 4 basamak zaten yeterli, DB kolonuyla (decimal 18,4) da
+        // tutarlı — sadece düzenlenmiş taraf için hassasiyeti artırıyoruz.
+        var decimals = adjustment == "dividends" ? 10 : 4;
 
         foreach (Match m in BarRx.Matches(raw))
         {
@@ -448,13 +464,13 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
                 else continue;
             }
 
-            var c = Math.Round((decimal)close, 4);
+            var c = Math.Round((decimal)close, decimals);
             list.Add(new StockPriceHistory
             {
                 Date = date,
-                Open = Math.Round((decimal)open, 4),
-                High = Math.Round((decimal)high, 4),
-                Low = Math.Round((decimal)low, 4),
+                Open = Math.Round((decimal)open, decimals),
+                High = Math.Round((decimal)high, decimals),
+                Low = Math.Round((decimal)low, decimals),
                 Close = c,
                 AdjustedClose = c,
                 Volume = (long)Math.Max(0, Math.Round(volume)),

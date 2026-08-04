@@ -1,14 +1,17 @@
 using System.Text;
+using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SanalBorsa.API.Hubs;
 using SanalBorsa.API.Middleware;
+using SanalBorsa.API.Security;
 using SanalBorsa.API.Services;
 using SanalBorsa.Application;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Infrastructure;
 using SanalBorsa.Infrastructure.Data;
+using SanalBorsa.Infrastructure.Jobs;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration()
@@ -38,7 +41,7 @@ try
 
     // ── Application & Infrastructure layers ──────────────────────────────────
     builder.Services.AddApplication();
-    builder.Services.AddInfrastructure(builder.Configuration);
+    builder.Services.AddInfrastructure(builder.Configuration, builder.Environment);
 
     // ── JWT Authentication ────────────────────────────────────────────────────
     var jwtSecret   = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("Jwt:Secret eksik.");
@@ -151,6 +154,15 @@ try
         // Milyonlarca satırlık fiyat tablosunda indeks kuran migration'lar 30 sn'yi aşabiliyor.
         db.Database.SetCommandTimeout(TimeSpan.FromMinutes(15));
         await db.Database.MigrateAsync();
+
+        // Hangfire kendi şemasını (Hangfire.SqlServer, SchemaName="Hangfire") ayrıca kurar.
+        // Sadece production zamanlanmış işleri (recurring job) sahiplenir — dev artık aynı DB'ye
+        // bağlandığı için burada da kayıt yapılırsa iki taraf birbirini geçersiz kılıp dururdu.
+        if (app.Environment.IsProduction())
+        {
+            var recurringJobs = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+            RecurringJobRegistrar.RegisterAll(recurringJobs);
+        }
     }
 
     // ── Middleware pipeline ───────────────────────────────────────────────────
@@ -178,6 +190,14 @@ try
     app.UseAuthorization();
     app.MapControllers();
     app.MapHub<CryptoHub>("/hubs/crypto");
+
+    // Basic Auth ile korunuyor — bkz. Security/HangfireDashboardAuthFilter.cs.
+    // Kimlik bilgileri appsettings'te YOK; Hangfire:DashboardUser / Hangfire:DashboardPassword
+    // ortam değişkeni olarak (Render → Environment) set edilmeli.
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = [new HangfireDashboardAuthFilter(app.Configuration)],
+    });
 
     Log.Information("SanalBorsa API starting on {Env}", app.Environment.EnvironmentName);
     await app.RunAsync();

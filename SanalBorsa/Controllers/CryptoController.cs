@@ -1,3 +1,4 @@
+using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,8 +21,13 @@ namespace SanalBorsa.API.Controllers;
 public class CryptoController : ControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IBackgroundJobClient _jobs;
 
-    public CryptoController(IMediator mediator) => _mediator = mediator;
+    public CryptoController(IMediator mediator, IBackgroundJobClient jobs)
+    {
+        _mediator = mediator;
+        _jobs = jobs;
+    }
 
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<CryptoTickerDto>), StatusCodes.Status200OK)]
@@ -84,25 +90,13 @@ public class CryptoController : ControllerBase
     [HttpPost("sync-history")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncHistory(
-        [FromServices] IServiceScopeFactory scopeFactory,
         [FromQuery] string? symbol = null,
         [FromQuery] bool full = false)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                await mediator.Send(new SyncCryptoHistoryCommand(symbol, full));
-            }
-            catch
-            {
-                // logged in handler
-            }
-        });
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new SyncCryptoHistoryCommand(symbol, full), CancellationToken.None));
 
-        return Accepted(new { message = "Crypto history sync started", symbol, full });
+        return Accepted(new { message = "Crypto history sync started", symbol, full, jobId });
     }
 
     /// <summary>
@@ -112,30 +106,18 @@ public class CryptoController : ControllerBase
     /// </summary>
     [HttpPost("backfill-pre-binance")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult BackfillPreBinance(
-        [FromServices] IServiceScopeFactory scopeFactory,
-        [FromQuery] string? symbol = null)
+    public IActionResult BackfillPreBinance([FromQuery] string? symbol = null)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                await mediator.Send(new BackfillCryptoPreBinanceHistoryCommand(symbol));
-            }
-            catch
-            {
-                // logged in handler
-            }
-        });
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new BackfillCryptoPreBinanceHistoryCommand(symbol), CancellationToken.None));
 
         return Accepted(new
         {
             message = "Crypto pre-Binance USD backfill started for all active cryptos (or one symbol)",
             symbol,
             sources = new[] { "Zorinaq(BTC archive)", "Coinbase USD", "Yahoo Finance USD" },
-            note = "Binance bars are never overwritten. TradingView has no public bulk API."
+            note = "Binance bars are never overwritten. TradingView has no public bulk API.",
+            jobId,
         });
     }
 }

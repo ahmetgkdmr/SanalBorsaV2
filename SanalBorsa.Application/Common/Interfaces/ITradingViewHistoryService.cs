@@ -24,4 +24,15 @@ public interface ITradingViewHistoryService
         DateTime from,
         DateTime to,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Tam TV sembolü için düzeltilmiş kapanış (<c>adjustment=dividends</c>) — split + temettü dahil
+    /// toplam getiri serisi. Zaman Makinesi hesabı artık olay-bazlı simülasyon yerine bu seri
+    /// üzerindeki oranı kullanıyor (bkz. TimeMachineCalculator).
+    /// </summary>
+    Task<IReadOnlyDictionary<DateTime, decimal>> GetAdjustedClosesByTvSymbolAsync(
+        string tvSymbol,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default);
 }

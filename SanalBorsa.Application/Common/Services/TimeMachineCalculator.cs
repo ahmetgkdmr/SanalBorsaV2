@@ -6,6 +6,20 @@ using SanalBorsa.Domain.Enums;
 
 namespace SanalBorsa.Application.Common.Services;
 
+/// <summary>
+/// Para hesabı artık olay-bazlı simülasyon (her split/temettü/bedelliyi tek tek uygulayıp lot/nakit
+/// takip etmek) yerine <see cref="StockPriceHistory.AdjustedClose"/> (TradingView "dividends" —
+/// split + temettü dahil toplam getiri) serisindeki orana dayanıyor:
+/// bugünküDeğer = yatırılanTutar × (AdjustedClose_bugün / AdjustedClose_alımGünü).
+/// Bu, hangi olayın "gerçek temettü" hangisinin "spin-off" olduğunu bizim ayırt etmemize gerek
+/// bırakmıyor, split'i çifte saymayı imkansız kılıyor ve bedelli'nin (rüçhan) doğru ekonomik
+/// etkisini (TERP) bizim yerimize TradingView'e bırakıyor (bkz. proje sohbeti — GE/Citigroup
+/// spin-off'ları ve GARAN bedelli testleri bu yaklaşımı doğruladı).
+/// Olaylar (split/bedelli/bedelsiz/temettü) hâlâ hikaye/lotEvents için gösterilir, ama artık parayı
+/// etkilemezler — sadece "bu tarihte şu oldu, lot sayın böyle değişti" bilgisi verirler; bedelli/
+/// bedelsiz için lot çarpanı, olayın bildirdiği (bazen hatalı) orandan değil, o günün HAM fiyatındaki
+/// gerçek öncesi/sonrası değişiminden (ampirik) türetilir.
+/// </summary>
 public static class TimeMachineCalculator
 {
     private static readonly CultureInfo TrCulture = new("tr-TR");
@@ -23,8 +37,17 @@ public static class TimeMachineCalculator
         DateTime buyDate,
         decimal wagePercentage,
         string mode,
-        decimal? amount = null)
+        decimal? amount = null,
+        MarketType market = MarketType.Bist)
     {
+        // Türkiye asgari ücreti sadece BIST için anlamlı bir varsayılan yatırım tutarı çıpası —
+        // ABD (veya başka bir piyasa) için sahte bir "asgari ücret" tablosu uydurmak yerine
+        // amount (USD) zorunlu tutulur.
+        if (market != MarketType.Bist && (amount is null || amount.Value <= 0))
+        {
+            return Error(symbol, mode, buyDate, "Bu piyasa için yatırım tutarı (amount) zorunludur.");
+        }
+
         if (prices.Count == 0)
             return Error(symbol, mode, buyDate, "Bu hisse için fiyat geçmişi bulunamadı.");
 
@@ -49,6 +72,7 @@ public static class TimeMachineCalculator
             return Error(symbol, mode, buyDate, "Seçilen tarihte işlem günü bulunamadı.");
 
         var buyPrice = buyEntry.Close;
+        var adjustedBuy = buyEntry.AdjustedClose > 0m ? buyEntry.AdjustedClose : buyPrice;
         var wage = amount.HasValue && amount.Value > 0
             ? amount.Value
             : MinimumWageByYear.Get(buyDate) * wagePercentage / 100m;
@@ -62,12 +86,12 @@ public static class TimeMachineCalculator
         if (normalizedMode == "lump")
         {
             return CalculateLump(
-                symbol, normalizedMode, dateLabel, buyDate, buyPrice, wage,
-                monthlyPoints, orderedActions, orderedPrices);
+                symbol, normalizedMode, dateLabel, buyDate, buyPrice, adjustedBuy, wage,
+                monthlyPoints, orderedActions, orderedPrices, market);
         }
 
         return CalculateDca(
-            symbol, normalizedMode, dateLabel, buyDate, buyPrice, wagePercentage, amount,
+            symbol, normalizedMode, dateLabel, buyDate, buyPrice, wagePercentage, amount, market,
             monthlyPoints, orderedActions, orderedPrices);
     }
 
@@ -77,14 +101,15 @@ public static class TimeMachineCalculator
         string dateLabel,
         DateTime buyDate,
         decimal buyPrice,
+        decimal adjustedBuy,
         decimal wage,
         IReadOnlyList<MonthlyPricePoint> monthlyPoints,
         IReadOnlyList<CorporateAction> actions,
-        IReadOnlyList<StockPriceHistory> dailyPrices)
+        IReadOnlyList<StockPriceHistory> dailyPrices,
+        MarketType market)
     {
-        // Kesirli lot: 2005 öncesi 0.72 lot ≈ 720 adet (eski sistem)
-        var lots = buyPrice > 0m ? wage / buyPrice : 0m;
-        if (lots < MinLots)
+        var initialLots = buyPrice > 0m ? RoundLots(wage / buyPrice) : 0m;
+        if (initialLots < MinLots)
         {
             return new TimeMachineResultDto(
                 symbol, mode, 0, 0, 0, 0, 0, buyPrice, monthlyPoints[^1].Price,
@@ -93,53 +118,36 @@ public static class TimeMachineCalculator
         }
 
         var invested = wage;
-        var initialLots = RoundLots(lots);
-        lots = initialLots;
-        var cash = 0m;
-        var dividendsReceived = 0m;
-        var dividendsReinvested = 0m;
-        var lotsFromReinvest = 0m;
-        var actionIdx = 0;
 
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
         var lotSeries = new List<decimal>();
-        var lotEvents = new List<LotEventMarkerDto>();
-        var states = new List<PortfolioState>();
-        AddState(states, buyDate.Date, lots, cash);
 
         foreach (var point in monthlyPoints)
         {
-            while (actionIdx < actions.Count &&
-                   actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date)
-            {
-                var actionDate = actions[actionIdx].ActionDate.Date;
-                ApplyAndRecord(
-                    actions[actionIdx], point, dailyPrices,
-                    ref lots, ref cash,
-                    ref dividendsReceived, ref dividendsReinvested, ref lotsFromReinvest,
-                    lotEvents);
-                AddState(states, actionDate, lots, cash);
-                actionIdx++;
-            }
-
+            var adjAtPoint = point.AdjustedClose > 0m ? point.AdjustedClose : point.Price;
+            var value = adjustedBuy > 0m ? invested * (adjAtPoint / adjustedBuy) : invested;
             series.Add(new SimulationPointDto(point.Year, point.Month, point.Price));
-            valueSeries.Add(lots * point.Price + cash);
-            lotSeries.Add(RoundLots(lots));
+            valueSeries.Add(value);
+            lotSeries.Add(point.Price > 0m ? RoundLots(value / point.Price) : 0m);
         }
 
-        lots = RoundLots(lots);
         var currentValue = valueSeries[^1];
+        var finalLots = lotSeries[^1];
         var gainPct = invested > 0 ? (currentValue - invested) / invested * 100m : 0m;
+
+        var (lotEvents, dividendsReceived) = BuildNarrativeEvents(
+            actions, dailyPrices, initialLots, buyDate);
+
         var story = BuildStoryLines(
-            symbol, dateLabel, mode, invested, initialLots, lots, buyDate,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, currentValue, lotEvents);
+            symbol, dateLabel, mode, invested, initialLots, finalLots, buyDate, market,
+            dividendsReceived, currentValue, lotEvents);
 
         return new TimeMachineResultDto(
-            symbol, mode, invested, currentValue, gainPct, initialLots, lots,
+            symbol, mode, invested, currentValue, gainPct, initialLots, finalLots,
             buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story,
-            DailySeries: BuildDailySeries(dailyPrices, buyDate, states));
+            dividendsReceived, 0m, 0m, 0m, story,
+            DailySeries: BuildDailySeries(dailyPrices, buyDate, invested, adjustedBuy));
     }
 
     private static TimeMachineResultDto CalculateDca(
@@ -150,70 +158,50 @@ public static class TimeMachineCalculator
         decimal buyPrice,
         decimal wagePercentage,
         decimal? amount,
+        MarketType market,
         IReadOnlyList<MonthlyPricePoint> monthlyPoints,
         IReadOnlyList<CorporateAction> actions,
         IReadOnlyList<StockPriceHistory> dailyPrices)
     {
-        decimal lots = 0;
-        decimal initialLots = 0;
-        var cash = 0m;
-        var invested = 0m;
-        var dividendsReceived = 0m;
-        var dividendsReinvested = 0m;
-        var lotsFromReinvest = 0m;
-        var actionIdx = 0;
+        // Her aylık katkı kendi alım anındaki AdjustedClose'una göre ayrı ayrı büyür; bir noktadaki
+        // toplam değer, o ana kadarki bütün katkıların o günkü karşılıklarının toplamıdır.
+        var contributions = new List<(decimal Amount, decimal AdjustedAtBuy)>();
+        decimal invested = 0m;
+        decimal initialLots = 0m;
 
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
         var lotSeries = new List<decimal>();
-        var lotEvents = new List<LotEventMarkerDto>();
-        var states = new List<PortfolioState>();
-        AddState(states, buyDate.Date, lots, cash);
 
         for (var i = 0; i < monthlyPoints.Count; i++)
         {
             var point = monthlyPoints[i];
+            var adjAtPoint = point.AdjustedClose > 0m ? point.AdjustedClose : point.Price;
 
             if (i < monthlyPoints.Count - 1)
             {
                 var monthlyWage = amount.HasValue && amount.Value > 0
                     ? amount.Value
                     : MinimumWageByYear.Get(point.MonthEnd) * wagePercentage / 100m;
-                cash += monthlyWage;
-                invested += monthlyWage;
 
-                if (point.Price > 0m)
+                if (monthlyWage > 0m && adjAtPoint > 0m)
                 {
-                    var bought = cash / point.Price;
-                    lots += bought;
-                    cash -= bought * point.Price;
-                    if (initialLots == 0 && lots >= MinLots)
-                        initialLots = RoundLots(lots);
+                    contributions.Add((monthlyWage, adjAtPoint));
+                    invested += monthlyWage;
+
+                    if (initialLots == 0m && point.Price > 0m)
+                        initialLots = RoundLots(monthlyWage / point.Price);
                 }
-
-                AddState(states, point.MonthEnd.Date, lots, cash);
             }
 
-            while (actionIdx < actions.Count &&
-                   actions[actionIdx].ActionDate.Date <= point.MonthEnd.Date)
-            {
-                var actionDate = actions[actionIdx].ActionDate.Date;
-                ApplyAndRecord(
-                    actions[actionIdx], point, dailyPrices,
-                    ref lots, ref cash,
-                    ref dividendsReceived, ref dividendsReinvested, ref lotsFromReinvest,
-                    lotEvents);
-                AddState(states, actionDate, lots, cash);
-                actionIdx++;
-            }
-
+            var value = contributions.Sum(c => c.AdjustedAtBuy > 0m ? c.Amount * (adjAtPoint / c.AdjustedAtBuy) : 0m);
             series.Add(new SimulationPointDto(point.Year, point.Month, point.Price));
-            valueSeries.Add(lots * point.Price + cash);
-            lotSeries.Add(RoundLots(lots));
+            valueSeries.Add(value);
+            lotSeries.Add(point.Price > 0m ? RoundLots(value / point.Price) : 0m);
         }
 
-        lots = RoundLots(lots);
-        if (lots < MinLots)
+        var finalLots = lotSeries.Count > 0 ? lotSeries[^1] : 0m;
+        if (finalLots < MinLots)
         {
             return new TimeMachineResultDto(
                 symbol, mode, 0, 0, 0, 0, 0, buyPrice, monthlyPoints[^1].Price,
@@ -221,152 +209,123 @@ public static class TimeMachineCalculator
                 Error: "Bu oranla birikim hisse almaya yetmemiş. Oranı artırmayı dene.");
         }
 
-        if (initialLots == 0)
-            initialLots = lots;
+        if (initialLots == 0m)
+            initialLots = finalLots;
 
         var currentValue = valueSeries[^1];
         var gainPct = invested > 0 ? (currentValue - invested) / invested * 100m : 0m;
-        var story = BuildStoryLines(
-            symbol, dateLabel, mode, invested, initialLots, lots, buyDate,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, currentValue, lotEvents);
 
+        var (lotEvents, dividendsReceived) = BuildNarrativeEvents(
+            actions, dailyPrices, initialLots, buyDate);
+
+        var story = BuildStoryLines(
+            symbol, dateLabel, mode, invested, initialLots, finalLots, buyDate, market,
+            dividendsReceived, currentValue, lotEvents);
+
+        var firstAdjusted = contributions.Count > 0 ? contributions[0].AdjustedAtBuy : 0m;
         return new TimeMachineResultDto(
-            symbol, mode, invested, currentValue, gainPct, initialLots, lots,
+            symbol, mode, invested, currentValue, gainPct, initialLots, finalLots,
             buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, dividendsReinvested, lotsFromReinvest, cash, story,
-            DailySeries: BuildDailySeries(dailyPrices, buyDate, states));
+            dividendsReceived, 0m, 0m, 0m, story,
+            DailySeries: BuildDcaDailySeries(dailyPrices, buyDate, contributions));
     }
 
-    private static void ApplyAndRecord(
-        CorporateAction action,
-        MonthlyPricePoint point,
+    /// <summary>
+    /// Olayları PARAYI etkilemeden, sadece hikaye/lotEvents için yürür: bedelsiz/bedelli lot
+    /// çarpanı, olayın bildirdiği (bazen hatalı — bkz. rüçhan fiyatı 1000 sabit bug'ı) değerden
+    /// değil, o günün ham kapanışındaki gerçek öncesi/sonrası değişiminden türetilir. Temettü
+    /// sadece "bu kadar ödedi" diye raporlanır, yeniden yatırım/lot artışı iddia edilmez.
+    /// </summary>
+    private static (List<LotEventMarkerDto> Events, decimal DividendsReceived) BuildNarrativeEvents(
+        IReadOnlyList<CorporateAction> actions,
         IReadOnlyList<StockPriceHistory> dailyPrices,
-        ref decimal lots,
-        ref decimal cash,
-        ref decimal dividendsReceived,
-        ref decimal dividendsReinvested,
-        ref decimal lotsFromReinvest,
-        List<LotEventMarkerDto> lotEvents)
+        decimal initialLots,
+        DateTime buyDate)
     {
-        var lotsBefore = RoundLots(lots);
-        decimal? cashReceived = null;
-        decimal? lotsBought = null;
-        string? story = null;
+        var events = new List<LotEventMarkerDto>();
+        var narrativeLots = initialLots;
+        var dividendsReceived = 0m;
 
-        switch (action.ActionType)
+        foreach (var action in actions)
         {
-            case CorporateActionType.Dividend:
-            {
-                var received = lots * action.Value;
-                cash += received;
-                dividendsReceived += received;
-                cashReceived = received;
+            var lotsBefore = RoundLots(narrativeLots);
+            decimal? cashReceived = null;
+            string? story = null;
+            var pointYear = action.ActionDate.Year;
+            var pointMonth = action.ActionDate.Month;
 
-                var px = FindOnOrAfter(dailyPrices, action.ActionDate)?.Close ?? point.Price;
-                if (px > 0m && cash >= px * MinLots)
+            switch (action.ActionType)
+            {
+                case CorporateActionType.Dividend:
                 {
-                    var bought = RoundLots(cash / px);
-                    if (bought >= MinLots)
-                    {
-                        var cost = bought * px;
-                        lots += bought;
-                        cash -= cost;
-                        dividendsReinvested += cost;
-                        lotsFromReinvest += bought;
-                        lotsBought = bought;
-                    }
+                    var received = narrativeLots * action.Value;
+                    if (received <= 0m) continue;
+                    dividendsReceived += received;
+                    cashReceived = received;
+                    story = $"{action.ActionDate:d MMMM yyyy}: {received:N2} ₺ temettü verdi.";
+                    break;
                 }
 
-                story = lotsBought is > 0
-                    ? $"{action.ActionDate:d MMMM yyyy}: {received:N2} ₺ temettü → aynı gün +{FormatLots(lotsBought.Value)} lot ({FormatLots(lotsBefore)} → {FormatLots(lots)})"
-                    : $"{action.ActionDate:d MMMM yyyy}: {received:N2} ₺ temettü nakit kaldı (fiyat {px:N2} ₺)";
-                break;
-            }
-
-            case CorporateActionType.BonusIssue:
-            {
-                if (action.Value <= 0m)
-                    return;
-                lots = RoundLots(lots * action.Value);
-                var pct = (action.Value - 1m) * 100m;
-                story =
-                    $"{action.ActionDate:d MMMM yyyy}: Bedelsiz %{pct:0.#} (×{action.Value:0.####}) → lot {FormatLots(lotsBefore)} → {FormatLots(lots)}";
-                break;
-            }
-
-            case CorporateActionType.RightsIssue:
-            {
-                if (action.Value <= 0m)
-                    return;
-
-                var newLots = RoundLots(lotsBefore * action.Value);
-                if (newLots < MinLots)
-                    return;
-
-                var unitPrice = NormalizeSubscriptionPrice(action.SubscriptionPrice, action.ActionDate);
-                var pct = action.Value * 100m;
-
-                if (unitPrice is null or <= 0m)
+                case CorporateActionType.BonusIssue:
+                case CorporateActionType.RightsIssue:
                 {
-                    story =
-                        $"{action.ActionDate:d MMMM yyyy}: Bedelli %{pct:0.#} hakkı ({FormatLots(newLots)} lot) — rüçhan fiyatı yok, kullanılmadı";
-                    lotEvents.Add(new LotEventMarkerDto(
-                        point.Year, point.Month,
-                        action.ActionDate.ToString("d MMMM yyyy", TrCulture),
-                        action.ActionType.ToString(),
-                        BuildLotEventLabel(action),
-                        lotsBefore, RoundLots(lots), action.Description,
-                        Story: story, Day: action.ActionDate.Day));
-                    return;
+                    var multiplier = EmpiricalLotMultiplier(dailyPrices, action.ActionDate);
+                    if (multiplier is null || multiplier.Value <= 0m || Math.Abs(multiplier.Value - 1m) < 0.001m)
+                        continue;
+
+                    narrativeLots = RoundLots(narrativeLots * multiplier.Value);
+                    var isBedelli = action.ActionType == CorporateActionType.RightsIssue;
+                    var label = isBedelli ? "Bedelli" : multiplier.Value < 1m ? "Ters split" : "Bedelsiz";
+                    story = multiplier.Value < 1m
+                        ? $"{action.ActionDate:d MMMM yyyy}: {label} (÷{1m / multiplier.Value:0.##}) → lot {FormatLots(lotsBefore)} → {FormatLots(narrativeLots)}"
+                        : $"{action.ActionDate:d MMMM yyyy}: {label} (×{multiplier.Value:0.##}) → lot {FormatLots(lotsBefore)} → {FormatLots(narrativeLots)}";
+                    break;
                 }
 
-                var affordable = unitPrice.Value > 0m ? RoundLots(cash / unitPrice.Value) : 0m;
-                var bought = Math.Min(newLots, affordable);
-                if (bought < MinLots)
-                {
-                    story =
-                        $"{action.ActionDate:d MMMM yyyy}: Bedelli %{pct:0.#} · rüçhan {unitPrice:N4} ₺ — nakit yetersiz, kullanılmadı";
-                    lotEvents.Add(new LotEventMarkerDto(
-                        point.Year, point.Month,
-                        action.ActionDate.ToString("d MMMM yyyy", TrCulture),
-                        action.ActionType.ToString(),
-                        BuildLotEventLabel(action),
-                        lotsBefore, RoundLots(lots), action.Description,
-                        Story: story, Day: action.ActionDate.Day));
-                    return;
-                }
-
-                var cost = bought * unitPrice.Value;
-                cash -= cost;
-                lots += bought;
-                lotsBought = bought;
-                story = bought + MinLots < newLots
-                    ? $"{action.ActionDate:d MMMM yyyy}: Bedelli %{pct:0.#} · rüçhan {unitPrice:N4} ₺ → kısmi {FormatLots(bought)}/{FormatLots(newLots)} ({FormatLots(lotsBefore)} → {FormatLots(lots)})"
-                    : $"{action.ActionDate:d MMMM yyyy}: Bedelli %{pct:0.#} · rüçhan {unitPrice:N4} ₺ → +{FormatLots(bought)} lot ({FormatLots(lotsBefore)} → {FormatLots(lots)})";
-                break;
+                default:
+                    continue;
             }
 
-            default:
-                return;
-        }
-
-        lots = RoundLots(lots);
-        if (lots != lotsBefore || cashReceived is > 0m)
-        {
-            lotEvents.Add(new LotEventMarkerDto(
-                point.Year,
-                point.Month,
+            events.Add(new LotEventMarkerDto(
+                pointYear, pointMonth,
                 action.ActionDate.ToString("d MMMM yyyy", TrCulture),
                 action.ActionType.ToString(),
                 BuildLotEventLabel(action),
-                lotsBefore,
-                lots,
-                action.Description,
-                cashReceived,
-                lotsBought,
-                story,
-                action.ActionDate.Day));
+                lotsBefore, RoundLots(narrativeLots), action.Description,
+                cashReceived, null, story, action.ActionDate.Day));
         }
+
+        return (events, dividendsReceived);
+    }
+
+    /// <summary>
+    /// Bir olayın gerçek lot çarpanını, olayın kendi bildirdiği orandan değil, o günün ham
+    /// kapanışındaki önceki/sonraki günün gerçek fiyat değişiminden çıkarır (çarpan = önceki/sonraki
+    /// fiyat oranı). Bedelsizde bu zaten olayın value'suyla örtüşür (bedava, saf matematik); bedelli
+    /// gibi bedel içeren olaylarda ise gerçek (TERP'e uygun) ekonomik etkiyi yansıtır — rüçhan
+    /// fiyatı verisine hiç ihtiyaç duymadan.
+    /// </summary>
+    private static decimal? EmpiricalLotMultiplier(IReadOnlyList<StockPriceHistory> dailyPrices, DateTime actionDate)
+    {
+        StockPriceHistory? before = null;
+        foreach (var p in dailyPrices)
+        {
+            if (p.Date.Date >= actionDate.Date) break;
+            before = p;
+        }
+
+        StockPriceHistory? after = null;
+        foreach (var p in dailyPrices)
+        {
+            if (p.Date.Date < actionDate.Date) continue;
+            after = p;
+            break;
+        }
+
+        if (before is null || after is null || before.Close <= 0m || after.Close <= 0m)
+            return null;
+
+        return before.Close / after.Close;
     }
 
     private static List<string> BuildStoryLines(
@@ -377,10 +336,8 @@ public static class TimeMachineCalculator
         decimal initialLots,
         decimal finalLots,
         DateTime buyDate,
+        MarketType market,
         decimal dividendsReceived,
-        decimal dividendsReinvested,
-        decimal lotsFromReinvest,
-        decimal cashRemaining,
         decimal currentValue,
         IReadOnlyList<LotEventMarkerDto> events)
     {
@@ -391,7 +348,7 @@ public static class TimeMachineCalculator
             lines.Add(
                 $"{dateLabel}'den bugüne düzenli alımla toplam {FormatMoney(invested)} ₺ yatırdın; ilk birikimin ~{FormatLots(initialLots)} lot {symbol}.");
         }
-        else if (buyDate.Year < 2005)
+        else if (market == MarketType.Bist && buyDate.Year < 2005)
         {
             var adet = (long)Math.Round(initialLots * OldSharesPerLot);
             lines.Add(
@@ -404,36 +361,27 @@ public static class TimeMachineCalculator
                 $"{dateLabel}'de {FormatMoney(invested)} ₺ ile {FormatLots(initialLots)} lot {symbol} aldın.");
         }
 
-        var bonus = events.Count(e =>
-            e.ActionType == nameof(CorporateActionType.BonusIssue) && e.LotsAfter > e.LotsBefore);
-        var rights = events.Count(e =>
-            e.ActionType == nameof(CorporateActionType.RightsIssue) && e.LotsAfter > e.LotsBefore);
-        var lotsAfterCorp = Math.Max(initialLots, finalLots - lotsFromReinvest);
-        if (bonus + rights > 0 && lotsAfterCorp > initialLots + MinLots)
+        var bonusOrRights = events.Count(e =>
+            e.ActionType is nameof(CorporateActionType.BonusIssue) or nameof(CorporateActionType.RightsIssue));
+        if (bonusOrRights > 0)
         {
+            var bedelsiz = events.Count(e => e.ActionType == nameof(CorporateActionType.BonusIssue));
+            var bedelli = events.Count(e => e.ActionType == nameof(CorporateActionType.RightsIssue));
             var parts = new List<string>();
-            if (bonus > 0) parts.Add($"{bonus} bedelsiz");
-            if (rights > 0) parts.Add($"{rights} bedelli (rüçhan kullanıldı)");
+            if (bedelsiz > 0) parts.Add($"{bedelsiz} bedelsiz");
+            if (bedelli > 0) parts.Add($"{bedelli} bedelli");
+            var lastLots = events[^1].LotsAfter;
             lines.Add(
-                $"{string.Join(" ve ", parts)} ile lotların {FormatLots(initialLots)} → {FormatLots(lotsAfterCorp)} oldu.");
+                $"{string.Join(" ve ", parts)} oldu — lot sayın {FormatLots(initialLots)} → {FormatLots(lastLots)} arasında değişti.");
         }
 
         if (dividendsReceived > 0m)
         {
-            lines.Add(
-                lotsFromReinvest > 0
-                    ? $"Temettü geliri {FormatMoney(dividendsReceived)} ₺; bunun {FormatMoney(dividendsReinvested)} ₺'sini aynı gün hisseye yatırdın (+{FormatLots(lotsFromReinvest)} lot → {FormatLots(finalLots)} lot)."
-                    : $"Temettü geliri {FormatMoney(dividendsReceived)} ₺ olarak nakitte kaldı.");
-        }
-        else if (finalLots > initialLots + MinLots && bonus + rights == 0)
-        {
-            lines.Add($"Lot sayın {FormatLots(initialLots)} → {FormatLots(finalLots)} oldu.");
+            lines.Add($"Bu süreçte toplam {FormatMoney(dividendsReceived)} ₺ temettü verdi.");
         }
 
         lines.Add(
-            cashRemaining > 0.5m
-                ? $"Sonuç: elinde {FormatLots(finalLots)} lot · portföy {FormatMoney(currentValue)} ₺ · nakit kalan {FormatMoney(cashRemaining)} ₺."
-                : $"Sonuç: elinde {FormatLots(finalLots)} lot · portföy değeri {FormatMoney(currentValue)} ₺.");
+            $"Sonuç: bugünkü karşılığı ~{FormatLots(finalLots)} lot · portföy değeri {FormatMoney(currentValue)} ₺.");
 
         return lines;
     }
@@ -441,6 +389,8 @@ public static class TimeMachineCalculator
     private static string BuildLotEventLabel(CorporateAction action)
         => action.ActionType switch
         {
+            CorporateActionType.BonusIssue when action.Value < 1m =>
+                $"Ters split (÷{(1m / action.Value):0.##})",
             CorporateActionType.BonusIssue =>
                 $"Bedelsiz %{((action.Value - 1m) * 100m):0.#} (×{action.Value:0.##})",
             CorporateActionType.RightsIssue =>
@@ -454,15 +404,6 @@ public static class TimeMachineCalculator
         IReadOnlyList<StockPriceHistory> prices,
         DateTime date)
         => prices.FirstOrDefault(p => p.Date.Date >= date.Date);
-
-    private static decimal? NormalizeSubscriptionPrice(decimal? raw, DateTime actionDate)
-    {
-        if (raw is null or <= 0m) return null;
-        var price = raw.Value;
-        if (actionDate.Date < new DateTime(2005, 1, 1) && price >= 1m)
-            price /= 1_000_000m;
-        return price;
-    }
 
     private static decimal RoundLots(decimal lots)
         => Math.Round(lots, 6, MidpointRounding.AwayFromZero);
@@ -500,7 +441,8 @@ public static class TimeMachineCalculator
                 .FirstOrDefault();
 
             if (monthPrice is not null)
-                points.Add(new MonthlyPricePoint(cursor.Year, cursor.Month, monthEnd, monthPrice.Close));
+                points.Add(new MonthlyPricePoint(
+                    cursor.Year, cursor.Month, monthEnd, monthPrice.Close, monthPrice.AdjustedClose));
 
             cursor = cursor.AddMonths(1);
         }
@@ -508,67 +450,70 @@ public static class TimeMachineCalculator
         return points;
     }
 
-    /// <summary>
-    /// Portföyün (lot, nakit) durumu yalnızca belirli tarihlerde değişir: aylık alım günü
-    /// ve şirket olayı günleri. Bu çizelge sayesinde aradaki her işlem günü için değer
-    /// hesabı, aylık hesaplamayı hiç değiştirmeden birebir türetilebiliyor.
-    /// </summary>
-    private static void AddState(List<PortfolioState> states, DateTime date, decimal lots, decimal cash)
-    {
-        // Aylık alım ay sonunda işlendiği için ay içi olaylar geriye düşebiliyor; sıra bozulmasın.
-        if (states.Count > 0 && date < states[^1].Date)
-            date = states[^1].Date;
-
-        if (states.Count > 0 && states[^1].Date == date)
-        {
-            states[^1] = new PortfolioState(date, lots, cash);
-            return;
-        }
-
-        states.Add(new PortfolioState(date, lots, cash));
-    }
-
     private static DailySeriesDto? BuildDailySeries(
         IReadOnlyList<StockPriceHistory> dailyPrices,
         DateTime buyDate,
-        IReadOnlyList<PortfolioState> states)
+        decimal invested,
+        decimal adjustedBuy)
     {
-        if (states.Count == 0)
-            return null;
-
-        var start = dailyPrices.FirstOrDefault(p => p.Date.Date >= buyDate.Date)?.Date.Date;
-        if (start is null)
+        var fromIdx = dailyPrices
+            .Select((p, i) => (p, i))
+            .FirstOrDefault(t => t.p.Date.Date >= buyDate.Date, (null!, -1));
+        if (fromIdx.p is null)
             return null;
 
         var days = new List<int>();
         var prices = new List<decimal>();
         var values = new List<decimal>();
+        var start = fromIdx.p.Date.Date;
 
-        var stateIdx = 0;
-        var lots = states[0].Lots;
-        var cash = states[0].Cash;
-
-        foreach (var p in dailyPrices)
+        for (var i = fromIdx.i; i < dailyPrices.Count; i++)
         {
-            var date = p.Date.Date;
-            if (date < start.Value)
-                continue;
-
-            while (stateIdx < states.Count && states[stateIdx].Date <= date)
-            {
-                lots = states[stateIdx].Lots;
-                cash = states[stateIdx].Cash;
-                stateIdx++;
-            }
-
-            days.Add((int)(date - start.Value).TotalDays);
+            var p = dailyPrices[i];
+            var adj = p.AdjustedClose > 0m ? p.AdjustedClose : p.Close;
+            var value = adjustedBuy > 0m ? invested * (adj / adjustedBuy) : invested;
+            days.Add((int)(p.Date.Date - start).TotalDays);
             prices.Add(Math.Round(p.Close, 4));
-            values.Add(Math.Round(lots * p.Close + cash, 2));
+            values.Add(Math.Round(value, 2));
         }
 
         return days.Count < 2
             ? null
-            : new DailySeriesDto(start.Value.ToString("yyyy-MM-dd"), days, prices, values);
+            : new DailySeriesDto(start.ToString("yyyy-MM-dd"), days, prices, values);
+    }
+
+    private static DailySeriesDto? BuildDcaDailySeries(
+        IReadOnlyList<StockPriceHistory> dailyPrices,
+        DateTime buyDate,
+        IReadOnlyList<(decimal Amount, decimal AdjustedAtBuy)> contributions)
+    {
+        if (contributions.Count == 0)
+            return null;
+
+        var fromIdx = dailyPrices
+            .Select((p, i) => (p, i))
+            .FirstOrDefault(t => t.p.Date.Date >= buyDate.Date, (null!, -1));
+        if (fromIdx.p is null)
+            return null;
+
+        var days = new List<int>();
+        var prices = new List<decimal>();
+        var values = new List<decimal>();
+        var start = fromIdx.p.Date.Date;
+
+        for (var i = fromIdx.i; i < dailyPrices.Count; i++)
+        {
+            var p = dailyPrices[i];
+            var adj = p.AdjustedClose > 0m ? p.AdjustedClose : p.Close;
+            var value = contributions.Sum(c => c.AdjustedAtBuy > 0m ? c.Amount * (adj / c.AdjustedAtBuy) : 0m);
+            days.Add((int)(p.Date.Date - start).TotalDays);
+            prices.Add(Math.Round(p.Close, 4));
+            values.Add(Math.Round(value, 2));
+        }
+
+        return days.Count < 2
+            ? null
+            : new DailySeriesDto(start.ToString("yyyy-MM-dd"), days, prices, values);
     }
 
     private static TimeMachineResultDto Error(
@@ -584,7 +529,6 @@ public static class TimeMachineCalculator
             buyDate.ToString("d MMMM yyyy", TrCulture),
             Error: message);
 
-    private sealed record MonthlyPricePoint(int Year, int Month, DateTime MonthEnd, decimal Price);
-
-    private sealed record PortfolioState(DateTime Date, decimal Lots, decimal Cash);
+    private sealed record MonthlyPricePoint(
+        int Year, int Month, DateTime MonthEnd, decimal Price, decimal AdjustedClose);
 }

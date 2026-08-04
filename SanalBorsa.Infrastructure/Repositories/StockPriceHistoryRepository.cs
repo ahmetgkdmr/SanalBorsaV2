@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces.Repositories;
 using SanalBorsa.Domain.Models;
@@ -84,21 +85,80 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
     public async Task<bool> AnyAsync(CancellationToken ct = default)
         => await DbSet.AnyAsync(ct);
 
+    /// <summary>
+    /// SqlBulkCopy ile tek round-trip'lik akış — chunked AddRange + SaveChanges (2000'lik
+    /// parçalarda ayrı ayrı gidiş-dönüş) 10.000 barlık bir hissede tek başına onlarca saniye
+    /// sürüyordu (bkz. proje sohbeti — BAC/BALL ölçümü: TV verisi gelip DB yazımı bitene kadar
+    /// 44-60 saniye). TimeMachineLeaderRepository'deki aynı desen.
+    /// </summary>
     public async Task BulkInsertAsync(IEnumerable<StockPriceHistory> records, CancellationToken ct = default)
     {
-        // EF Core 8 ExecuteInsert is not available; batch via chunked AddRange + SaveChanges
-        const int chunkSize = 2000;
         var list = records
             .GroupBy(r => new { r.StockId, Date = r.Date.Date })
             .Select(g => g.Last())
             .ToList();
 
-        for (int i = 0; i < list.Count; i += chunkSize)
+        if (list.Count == 0)
+            return;
+
+        var table = BuildPriceHistoryTable(list);
+        var connection = (Microsoft.Data.SqlClient.SqlConnection)Context.Database.GetDbConnection();
+        var openedHere = connection.State != System.Data.ConnectionState.Open;
+        if (openedHere)
+            await connection.OpenAsync(ct);
+
+        try
         {
-            var chunk = list.Skip(i).Take(chunkSize);
-            await DbSet.AddRangeAsync(chunk, ct);
-            await Context.SaveChangesAsync(ct);
+            using var bulk = new Microsoft.Data.SqlClient.SqlBulkCopy(
+                connection,
+                Microsoft.Data.SqlClient.SqlBulkCopyOptions.Default,
+                (Microsoft.Data.SqlClient.SqlTransaction?)Context.Database.CurrentTransaction?.GetDbTransaction())
+            {
+                DestinationTableName = "StockPriceHistories",
+                BatchSize = 10_000,
+                BulkCopyTimeout = 600,
+            };
+
+            foreach (System.Data.DataColumn column in table.Columns)
+                bulk.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+
+            await bulk.WriteToServerAsync(table, ct);
         }
+        finally
+        {
+            if (openedHere)
+                await connection.CloseAsync();
+        }
+    }
+
+    private static System.Data.DataTable BuildPriceHistoryTable(IReadOnlyList<StockPriceHistory> rows)
+    {
+        var table = new System.Data.DataTable("StockPriceHistories");
+        table.Columns.Add(nameof(StockPriceHistory.StockId), typeof(int));
+        table.Columns.Add(nameof(StockPriceHistory.Date), typeof(DateTime));
+        table.Columns.Add(nameof(StockPriceHistory.Open), typeof(decimal));
+        table.Columns.Add(nameof(StockPriceHistory.High), typeof(decimal));
+        table.Columns.Add(nameof(StockPriceHistory.Low), typeof(decimal));
+        table.Columns.Add(nameof(StockPriceHistory.Close), typeof(decimal));
+        table.Columns.Add(nameof(StockPriceHistory.AdjustedClose), typeof(decimal));
+        table.Columns.Add(nameof(StockPriceHistory.Volume), typeof(long));
+        table.Columns.Add(nameof(StockPriceHistory.CreatedAt), typeof(DateTime));
+
+        foreach (var row in rows)
+        {
+            table.Rows.Add(
+                row.StockId,
+                row.Date.Date,
+                row.Open,
+                row.High,
+                row.Low,
+                row.Close,
+                row.AdjustedClose,
+                row.Volume,
+                row.CreatedAt);
+        }
+
+        return table;
     }
 
     public async Task<IReadOnlyDictionary<int, MarketPriceSnapshot>> GetMarketSnapshotsAsync(
@@ -291,6 +351,13 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         return all;
     }
 
+    /// <summary>
+    /// Eski hâli tüm satırları (izlenen entity olarak) çekip tek tek karşılaştırıp tek büyük
+    /// SaveChanges ile güncelliyordu — 10.000 satırlık bir hissede bu 30+ saniye sürüyordu (bkz.
+    /// proje sohbeti). Şimdi: gelen (tarih, değer) çiftlerini SqlBulkCopy ile bir #temp tabloya
+    /// yazıp tek bir UPDATE...FROM...JOIN ile hepsini bir seferde güncelliyoruz — EF change
+    /// tracking'e hiç girmeden, set-bazlı tek SQL ifadesi.
+    /// </summary>
     public async Task<int> UpdateAdjustedClosesAsync(
         int stockId,
         IReadOnlyDictionary<DateTime, decimal> adjustedByDate,
@@ -299,27 +366,69 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         if (adjustedByDate.Count == 0)
             return 0;
 
-        var rows = await DbSet
-            .Where(p => p.StockId == stockId)
-            .ToListAsync(ct);
+        var connection = (Microsoft.Data.SqlClient.SqlConnection)Context.Database.GetDbConnection();
+        var openedHere = connection.State != System.Data.ConnectionState.Open;
+        if (openedHere)
+            await connection.OpenAsync(ct);
 
-        var updated = 0;
-        foreach (var row in rows)
+        var tempTable = $"#AdjClose_{Guid.NewGuid():N}";
+        try
         {
-            if (!adjustedByDate.TryGetValue(row.Date.Date, out var adj))
-                continue;
+            var table = new System.Data.DataTable();
+            table.Columns.Add("Date", typeof(DateTime));
+            table.Columns.Add("AdjustedClose", typeof(decimal));
+            foreach (var (date, value) in adjustedByDate)
+                table.Rows.Add(date.Date, Math.Round(value, 10));
 
-            adj = Math.Round(adj, 4);
-            if (row.AdjustedClose == adj)
-                continue;
+            var tx = (Microsoft.Data.SqlClient.SqlTransaction?)Context.Database.CurrentTransaction?.GetDbTransaction();
 
-            row.AdjustedClose = adj;
-            updated++;
+            using (var create = connection.CreateCommand())
+            {
+                create.Transaction = tx;
+                create.CommandText = $"CREATE TABLE {tempTable} (Date date NOT NULL PRIMARY KEY, AdjustedClose decimal(24,10) NOT NULL);";
+                await create.ExecuteNonQueryAsync(ct);
+            }
+
+            using (var bulk = new Microsoft.Data.SqlClient.SqlBulkCopy(connection, Microsoft.Data.SqlClient.SqlBulkCopyOptions.Default, tx)
+            {
+                DestinationTableName = tempTable,
+                BulkCopyTimeout = 600,
+            })
+            {
+                bulk.ColumnMappings.Add("Date", "Date");
+                bulk.ColumnMappings.Add("AdjustedClose", "AdjustedClose");
+                await bulk.WriteToServerAsync(table, ct);
+            }
+
+            using var update = connection.CreateCommand();
+            update.Transaction = tx;
+            update.CommandTimeout = 300;
+            update.CommandText =
+                $"UPDATE p SET p.AdjustedClose = s.AdjustedClose " +
+                $"FROM StockPriceHistories p JOIN {tempTable} s ON p.Date = s.Date " +
+                $"WHERE p.StockId = @stockId AND p.AdjustedClose <> s.AdjustedClose;";
+            var stockIdParam = update.CreateParameter();
+            stockIdParam.ParameterName = "@stockId";
+            stockIdParam.Value = stockId;
+            update.Parameters.Add(stockIdParam);
+            var updated = await update.ExecuteNonQueryAsync(ct);
+
+            return updated;
         }
+        finally
+        {
+            try
+            {
+                using var drop = connection.CreateCommand();
+                drop.Transaction = (Microsoft.Data.SqlClient.SqlTransaction?)Context.Database.CurrentTransaction?.GetDbTransaction();
+                drop.CommandText = $"IF OBJECT_ID('tempdb..{tempTable}') IS NOT NULL DROP TABLE {tempTable};";
+                await drop.ExecuteNonQueryAsync(CancellationToken.None);
+            }
+            catch { /* best-effort cleanup */ }
 
-        if (updated > 0)
-            await Context.SaveChangesAsync(ct);
-
-        return updated;
+            if (openedHere)
+                await connection.CloseAsync();
+        }
     }
+
 }

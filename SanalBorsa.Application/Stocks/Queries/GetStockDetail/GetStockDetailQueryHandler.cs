@@ -19,7 +19,8 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
 
     public async Task<StockDetailDto> Handle(GetStockDetailQuery request, CancellationToken cancellationToken)
     {
-        var stock = await _uow.Stocks.GetBySymbolAsync(request.Symbol.ToUpperInvariant(), cancellationToken)
+        var stock = await _uow.Stocks.GetBySymbolAsync(
+                        request.Symbol.ToUpperInvariant(), cancellationToken, request.MarketType)
                     ?? throw new NotFoundException(nameof(Domain.Entities.Stock), request.Symbol);
 
         var recentPrices = await _uow.PriceHistories.GetByStockIdAsync(

@@ -75,6 +75,7 @@ public enum TxSide
 
 public enum MarketType
 {
-    Bist   = 1,
-    Crypto = 2,
+    Bist     = 1,
+    Crypto   = 2,
+    UsStocks = 3,
 }

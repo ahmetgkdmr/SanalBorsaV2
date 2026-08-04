@@ -1,7 +1,6 @@
+using Hangfire;
 using MediatR;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Quartz;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
 
 namespace SanalBorsa.Infrastructure.Jobs;
@@ -10,33 +9,28 @@ namespace SanalBorsa.Infrastructure.Jobs;
 /// Nightly 18:35 Turkey — incremental KAP check for new corporate actions
 /// (bedelsiz / bedelli+rüçhan / nakit temettü) after the latest DB date.
 /// Full historical bootstrap uses POST …/corporate-actions/sync?full=true (İş Yatırım).
+/// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
-[DisallowConcurrentExecution]
-public class CorporateActionSyncJob : IJob
+[DisableConcurrentExecution(timeoutInSeconds: 600)]
+[AutomaticRetry(Attempts = 3)]
+public sealed class CorporateActionSyncJob
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IMediator _mediator;
     private readonly ILogger<CorporateActionSyncJob> _logger;
 
-    public CorporateActionSyncJob(
-        IServiceScopeFactory scopeFactory,
-        ILogger<CorporateActionSyncJob> logger)
+    public CorporateActionSyncJob(IMediator mediator, ILogger<CorporateActionSyncJob> logger)
     {
-        _scopeFactory = scopeFactory;
+        _mediator = mediator;
         _logger = logger;
     }
 
-    public async Task Execute(IJobExecutionContext context)
+    public async Task RunAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("CorporateActionSyncJob (KAP) started at {Time}", DateTimeOffset.UtcNow);
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-
         try
         {
-            var result = await mediator.Send(
-                new SyncCorporateActionsCommand(FullResync: false),
-                context.CancellationToken);
+            var result = await _mediator.Send(new SyncCorporateActionsCommand(FullResync: false), ct);
 
             _logger.LogInformation(
                 "CorporateActionSyncJob (KAP) completed — Processed: {Processed}, Skipped: {Skipped}, Added: {Added}, Failed: {Failed}",
@@ -45,7 +39,7 @@ public class CorporateActionSyncJob : IJob
         catch (Exception ex)
         {
             _logger.LogError(ex, "CorporateActionSyncJob (KAP) failed");
-            throw new JobExecutionException(ex, refireImmediately: false);
+            throw;
         }
     }
 }

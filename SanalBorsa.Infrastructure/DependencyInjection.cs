@@ -1,9 +1,11 @@
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
-using Quartz;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Interfaces;
 using SanalBorsa.Infrastructure.Auth;
@@ -25,7 +27,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         // ── EF Core ────────────────────────────────────────────────────────────
         services.AddDbContext<AppDbContext>(options =>
@@ -33,7 +36,7 @@ public static class DependencyInjection
                 configuration.GetConnectionString("DefaultConnection"),
                 sql =>
                 {
-                    sql.CommandTimeout(600); // leaders / bulk fiyat sorguları
+                    sql.CommandTimeout(3600); // leaders / bulk fiyat sorguları + büyük tablo ALTER COLUMN migration'ları
                     sql.EnableRetryOnFailure(
                         maxRetryCount: 5,
                         maxRetryDelay: TimeSpan.FromSeconds(30),
@@ -136,6 +139,8 @@ public static class DependencyInjection
         services.AddScoped<TradingViewHistoryClient>();
         services.AddScoped<ITradingViewHistoryService>(sp => sp.GetRequiredService<TradingViewHistoryClient>());
         services.AddScoped<IBistRawPriceService, BistRawPriceService>();
+        services.AddScoped<IPriceAnomalyScheduler, HangfirePriceAnomalyScheduler>();
+        services.AddScoped<SanalBorsa.Application.Common.Services.PriceAnomalyGuard>();
 
         services.AddHttpClient("Tcmb", client =>
         {
@@ -171,56 +176,32 @@ public static class DependencyInjection
 
         services.AddScoped<IBistSymbolProvider, KapBistSymbolProvider>();
 
-        // ── Quartz.NET (saatler Türkiye saati) ───────────────────────────────
-        services.AddQuartz(q =>
-        {
-            var turkeyTz = TimeZoneInfo.FindSystemTimeZoneById(
-                OperatingSystem.IsWindows() ? "Turkey Standard Time" : "Europe/Istanbul");
+        // ── Hangfire (SQL Server storage — kalıcı; process restart/uyku job'u kaybetmez) ──
+        // Quartz'ın RAMJobStore'u (bellekte) yerine geçti: recurring job'ların "sıradaki
+        // çalışma zamanı" artık DB'de tutuluyor. Process ne zaman ayağa kalkarsa kalksın,
+        // vakti geçmiş bir job varsa Hangfire onu bir kez telafi (catch-up) çalıştırır.
+        // Cron kayıtları: Jobs/RecurringJobRegistrar.cs (Program.cs'te app.Build() sonrası çağrılır).
+        services.AddHangfire((sp, config) => config
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UseSqlServerStorage(
+                configuration.GetConnectionString("DefaultConnection"),
+                new SqlServerStorageOptions
+                {
+                    SchemaName = "Hangfire",
+                    PrepareSchemaIfNecessary = true,
+                }));
 
-            // 18:30 TR — metadata + BIST ham günlük fiyat (TradingView WS) + AdjustedClose
-            var tvKey = new JobKey("TradingViewPriceSyncJob", "DataSync");
-            q.AddJob<TradingViewPriceSyncJob>(opts => opts.WithIdentity(tvKey));
-            q.AddTrigger(opts => opts
-                .ForJob(tvKey)
-                .WithIdentity("TradingViewPriceSyncTrigger", "DataSync")
-                .WithCronSchedule("0 30 18 * * ?", x => x.InTimeZone(turkeyTz)));
+        // Lokal geliştirme ortamında worker (job'ları gerçekten ÇALIŞTIRAN taraf) hiç ayağa
+        // kalkmasın — dev makinesi artık production ile AYNI veritabanına bağlanıyor, ikisi de
+        // worker olursa aynı senkronları eşzamanlı/çakışarak çalıştırıp yavaşlatıyorlardı (bkz.
+        // proje sohbeti). Dashboard'dan job tetiklemek/izlemek hâlâ çalışır, sadece işi lokal
+        // makine değil production sunucusu yürütür.
+        if (environment.IsProduction())
+            services.AddHangfireServer();
 
-            // 18:35 TR — KAP corporate actions (incremental)
-            var corpKey = new JobKey("CorporateActionSyncJob", "DataSync");
-            q.AddJob<CorporateActionSyncJob>(opts => opts.WithIdentity(corpKey));
-            q.AddTrigger(opts => opts
-                .ForJob(corpKey)
-                .WithIdentity("CorporateActionSyncTrigger", "DataSync")
-                .WithCronSchedule("0 35 18 * * ?", x => x.InTimeZone(turkeyTz)));
-
-            // 23:00 TR — dönem şampiyonları (top gainers)
-            var topKey = new JobKey("TopGainersJob", "DataSync");
-            q.AddJob<TopGainersJob>(opts => opts.WithIdentity(topKey));
-            q.AddTrigger(opts => opts
-                .ForJob(topKey)
-                .WithIdentity("TopGainersTrigger", "DataSync")
-                .WithCronSchedule("0 0 23 * * ?", x => x.InTimeZone(turkeyTz)));
-
-            // 04:30 TR — Binance USDT günlük kline
-            var cryptoHistKey = new JobKey("CryptoHistorySyncJob", "DataSync");
-            q.AddJob<CryptoHistorySyncJob>(opts => opts.WithIdentity(cryptoHistKey));
-            q.AddTrigger(opts => opts
-                .ForJob(cryptoHistKey)
-                .WithIdentity("CryptoHistorySyncTrigger", "DataSync")
-                .WithCronSchedule("0 30 1 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc)));
-
-            // 02:00 TR — parite sync + zaman makinesi lider tablosu
-            var leadersKey = new JobKey("TimeMachineLeadersJob", "DataSync");
-            q.AddJob<TimeMachineLeadersJob>(opts => opts.WithIdentity(leadersKey));
-            q.AddTrigger(opts => opts
-                .ForJob(leadersKey)
-                .WithIdentity("TimeMachineLeadersTrigger", "DataSync")
-                .WithCronSchedule("0 0 2 * * ?", x => x.InTimeZone(turkeyTz)));
-        });
-
-        services.AddQuartzHostedService(opts => opts.WaitForJobsToComplete = true);
-
-        // ── Startup bootstrap (günlük fiyat Quartz 19:00'da) ─────────────────
+        // ── Startup bootstrap (günlük fiyat Hangfire 18:30'da) ─────────────────
         services.AddHostedService<InitialDataSeedService>();
 
         return services;

@@ -1,12 +1,10 @@
+using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
-using SanalBorsa.Application.Stocks.Commands.DeactivateInactiveBistStocks;
 using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
@@ -17,6 +15,7 @@ using SanalBorsa.Application.Stocks.Queries.GetAllStocks;
 using SanalBorsa.Application.Stocks.Queries.GetStockDetail;
 using SanalBorsa.Application.Stocks.Queries.GetTopGainers;
 using SanalBorsa.Domain.Entities;
+using SanalBorsa.Infrastructure.Jobs;
 
 namespace SanalBorsa.API.Controllers;
 
@@ -26,10 +25,12 @@ namespace SanalBorsa.API.Controllers;
 public class StocksController : ControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IBackgroundJobClient _jobs;
 
-    public StocksController(IMediator mediator)
+    public StocksController(IMediator mediator, IBackgroundJobClient jobs)
     {
         _mediator = mediator;
+        _jobs = jobs;
     }
 
     /// <summary>Returns a paginated list of BIST stocks with optional search and active filter.</summary>
@@ -65,28 +66,12 @@ public class StocksController : ControllerBase
     /// <summary>Recompute top gainers table (admin).</summary>
     [HttpPost("top-gainers/compute")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult ComputeTopGainers(
-        [FromServices] IServiceScopeFactory scopeFactory,
-        [FromQuery] string? marketType = null)
+    public IActionResult ComputeTopGainers([FromQuery] string? marketType = null)
     {
         var mt = ParseMarketType(marketType);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                await mediator.Send(new ComputeTopGainersCommand(mt));
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background top-gainers compute failed");
-            }
-        });
+        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(new ComputeTopGainersCommand(mt), CancellationToken.None));
 
-        return Accepted(new { message = "Top gainers compute started.", marketType = mt.ToString() });
+        return Accepted(new { message = "Top gainers compute started.", marketType = mt.ToString(), jobId });
     }
 
     private static MarketType ParseMarketType(string? value)
@@ -137,25 +122,10 @@ public class StocksController : ControllerBase
     /// </summary>
     [HttpPost("bootstrap")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult Bootstrap([FromServices] IServiceScopeFactory scopeFactory)
+    public IActionResult Bootstrap()
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                await mediator.Send(new BootstrapMarketDataCommand());
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background bootstrap failed");
-            }
-        });
-
-        return Accepted(new { message = "Market bootstrap started in background." });
+        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(new BootstrapMarketDataCommand(), CancellationToken.None));
+        return Accepted(new { message = "Market bootstrap started in background.", jobId });
     }
 
     /// <summary>
@@ -165,30 +135,12 @@ public class StocksController : ControllerBase
     [HttpPost("sync-prices")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncBistPrices(
-        [FromServices] IServiceScopeFactory scopeFactory,
         [FromQuery] bool full = false,
         [FromQuery] string? symbol = null,
         [FromQuery] int? lookbackDays = null)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(new SyncBistDailyPricesCommand(full, symbol, lookbackDays));
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogInformation(
-                    "BIST price sync finished — attempted={A} synced={S} bars={B} failed={F} max={Max:yyyy-MM-dd}",
-                    result.Attempted, result.Synced, result.BarsUpserted, result.Failed, result.MaxLatestDate);
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background BIST price sync failed");
-            }
-        });
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new SyncBistDailyPricesCommand(full, symbol, lookbackDays), CancellationToken.None));
 
         return Accepted(new
         {
@@ -196,6 +148,7 @@ public class StocksController : ControllerBase
             full,
             symbol,
             lookbackDays,
+            jobId,
         });
     }
 
@@ -206,36 +159,18 @@ public class StocksController : ControllerBase
     [HttpPost("sync-adjusted-closes")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncAdjustedCloses(
-        [FromServices] IServiceScopeFactory scopeFactory,
         [FromQuery] string? symbol = null,
         [FromQuery] int? lookbackDays = null)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(
-                    new SyncBistAdjustedClosesCommand(Symbol: symbol, LookbackDays: lookbackDays));
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogInformation(
-                    "BIST AdjustedClose sync finished — attempted={A} synced={S} rows={R} failed={F}",
-                    result.Attempted, result.Synced, result.RowsUpdated, result.Failed);
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background BIST AdjustedClose sync failed");
-            }
-        });
+        var cmd = new SyncBistAdjustedClosesCommand(Symbol: symbol, LookbackDays: lookbackDays);
+        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(cmd, CancellationToken.None));
 
         return Accepted(new
         {
             message = "BIST AdjustedClose sync başladı (TradingView dividends).",
             symbol,
             lookbackDays,
+            jobId,
         });
     }
 
@@ -255,31 +190,11 @@ public class StocksController : ControllerBase
     [HttpPost("corporate-actions/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncCorporateActions(
-        [FromServices] IServiceScopeFactory scopeFactory,
         [FromQuery] bool full = false,
         [FromQuery] bool resume = false)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(
-                    new SyncCorporateActionsCommand(FullResync: full, Resume: resume));
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogInformation(
-                    "Corporate-action sync finished — processed={P} skipped={S} added={A} removed={R} failed={F}",
-                    result.StocksProcessed, result.StocksSkipped, result.ActionsAdded,
-                    result.ActionsRemoved, result.Failed);
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background corporate-action sync failed");
-            }
-        });
+        var cmd = new SyncCorporateActionsCommand(FullResync: full, Resume: resume);
+        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(cmd, CancellationToken.None));
 
         return Accepted(new
         {
@@ -290,7 +205,8 @@ public class StocksController : ControllerBase
                 : "Incremental KAP corporate-action sync started in background.",
             full,
             resume,
-            source = full ? "IsYatirim" : "KAP"
+            source = full ? "IsYatirim" : "KAP",
+            jobId,
         });
     }
 
@@ -316,42 +232,16 @@ public class StocksController : ControllerBase
     /// </summary>
     [HttpPost("deactivate-inactive")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult DeactivateInactive(
-        [FromServices] IServiceScopeFactory scopeFactory,
-        [FromQuery] int lookbackDays = 60)
+    public IActionResult DeactivateInactive([FromQuery] int lookbackDays = 60)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var result = await mediator.Send(
-                    new DeactivateInactiveBistStocksCommand(lookbackDays));
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogInformation(
-                    "BIST inactive deactivate finished — checked={C} deactivated={D} probeFail={F} symbols=[{S}]",
-                    result.Checked, result.Deactivated, result.FailedProbe,
-                    string.Join(',', result.DeactivatedSymbols));
-
-                if (result.Deactivated > 0)
-                {
-                    await mediator.Send(new ComputeTopGainersCommand(MarketType.Bist));
-                    logger.LogInformation("TopGainers recomputed after BIST soft-deactivate");
-                }
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<StocksController>>();
-                logger.LogError(ex, "Background BIST inactive deactivate failed");
-            }
-        });
+        var jobId = _jobs.Enqueue<DeactivateInactiveBistStocksJob>(
+            j => j.RunAsync(lookbackDays, CancellationToken.None));
 
         return Accepted(new
         {
             message = "BIST inactive soft-deactivate başladı (TV boş → IsActive=false, fiyatlar silinmez).",
             lookbackDays,
+            jobId,
         });
     }
 }

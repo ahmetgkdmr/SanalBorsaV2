@@ -1,7 +1,6 @@
+using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Indices.Commands.SyncParityHistory;
 using SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
@@ -17,10 +16,12 @@ namespace SanalBorsa.API.Controllers;
 public class TimeMachineController : ControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IBackgroundJobClient _jobs;
 
-    public TimeMachineController(IMediator mediator)
+    public TimeMachineController(IMediator mediator, IBackgroundJobClient jobs)
     {
         _mediator = mediator;
+        _jobs = jobs;
     }
 
     /// <summary>
@@ -45,41 +46,17 @@ public class TimeMachineController : ControllerBase
     /// </summary>
     [HttpPost("leaders/compute")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult Compute(
-        [FromServices] IServiceScopeFactory scopeFactory,
-        [FromQuery] string category = "all")
+    public IActionResult Compute([FromQuery] string category = "all")
     {
         var parsed = ParseCategory(category);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<TimeMachineController>>();
-                var result = await mediator.Send(new ComputeTimeMachineLeadersCommand(parsed));
-                logger.LogInformation(
-                    "TimeMachine leaders compute finished — {Ms} ms, categories={Count}",
-                    result.ElapsedMs, result.Categories.Count);
-                foreach (var c in result.Categories)
-                {
-                    logger.LogInformation(
-                        "  {Category}: days={Days} rows={Rows} err={Err}",
-                        c.Category, c.Days, c.Rows, c.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<TimeMachineController>>();
-                logger.LogError(ex, "Background time-machine leaders compute failed");
-            }
-        });
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new ComputeTimeMachineLeadersCommand(parsed), CancellationToken.None));
 
         return Accepted(new
         {
             message = "Time-machine leaders compute started in background.",
             category,
+            jobId,
         });
     }
 

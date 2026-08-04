@@ -95,7 +95,9 @@ Kısaca: **.NET’te Clean Architecture nasıl yazılırsa öyle yaz** — katma
 
 ## Job’lar — bilmeyen birine anlatır gibi
 
-Sistem her gün kendi kendine veri tazeler. Elle her hisseyi çekmeye gerek yoktur; Quartz job’ları sırayla çalışır.
+Sistem her gün kendi kendine veri tazeler. Elle her hisseyi çekmeye gerek yoktur; Hangfire recurring
+job’ları sırayla çalışır (2026-08-02’den önce Quartz’tı — bkz. `md/JOBLAR.md` "Neden Quartz → Hangfire?").
+Job’ların canlı durumu ve geçmiş çalıştırmaları: **`/hangfire`** (Basic Auth korumalı).
 
 Saatler **Türkiye saati (TR)**.
 
@@ -170,17 +172,44 @@ Günlük asıl iş yukarıdaki Quartz job’lardadır. Kayıt yeri: `Infrastruct
 
 ## Elle tetiklenen admin API’ler
 
+Hepsi (universe/sync ve metadata sync hariç) artık **Hangfire'a enqueue** ediyor ve yanıtta `jobId`
+dönüyor — ilerlemesi `/hangfire/jobs/details/{jobId}` üzerinden izlenebilir.
+
 - `POST /api/stocks/sync-prices` — BIST TV sync (`full`, `symbol`, `lookbackDays`)  
 - `POST /api/stocks/sync-adjusted-closes` — sadece AdjustedClose  
-- `POST /api/stocks/sync` — metadata  
+- `POST /api/stocks/sync` — metadata (senkron, jobId yok)  
 - `POST /api/stocks/bootstrap` — ilk kurulum  
 - `POST /api/stocks/corporate-actions/sync` — `full` / `resume`  
-- `POST /api/stocks/universe/sync` — sembol ekle / soft-pasife çek (fiyat silmez)  
-- `POST /api/stocks/deactivate-inactive` — TV’den bar gelmeyenleri soft-pasife çek  
+- `POST /api/stocks/universe/sync` — sembol ekle / soft-pasife çek (fiyat silmez, senkron)  
+- `POST /api/stocks/deactivate-inactive` — TV’den bar gelmeyenleri soft-pasife çek (+ etkilendiyse top-gainers'ı da yeniler)  
 - `POST /api/stocks/top-gainers/compute`  
-- Zaman makinesi liderleri: `TimeMachineController` (`/api/time-machine/...`)  
+- `POST /api/crypto/sync-history`, `POST /api/crypto/backfill-pre-binance`  
+- `POST /api/time-machine/leaders/compute`  
+
+**Uyarı:** Bu endpoint'lerin hiçbiri `[Authorize]` değil — bkz. "Bilinen riskler / TODO".
 
 ---
+
+## Kimlik doğrulama (Auth)
+
+İki giriş yolu, ikisi de aynı `User` tablosuna yazar:
+
+| Yol | Akış |
+|-----|------|
+| Google (Firebase) | `POST /api/auth/login` (idToken) → yeni kullanıcıysa `NeedsProfile=true` + öneri kullanıcı adı → `POST /api/auth/register` ile tamamlanır |
+| Kullanıcı adı + şifre | `POST /api/auth/password/register` (kayıt) / `POST /api/auth/password/login` (giriş) — e-posta istenmez |
+
+- Şifre: PBKDF2-SHA256, 100.000 iterasyon, salt+hash `Pbkdf2PasswordHasher`'da (`Infrastructure/Auth/`).
+- Access token: JWT, `Jwt:AccessTokenMinutes` (varsayılan 60 dk). Refresh token: ayrı JWT, `secret + "_refresh"` ile imzalanır, `RefreshTokenDays` (varsayılan 30 gün); **DB'de tutulmaz, iptal/revoke mekanizması yok** — sızarsa süresi dolana kadar geçerli.
+- Yeni kullanıcı: 1.000.000 ₺ (BIST) + 100.000 USD (kripto) sanal bakiye.
+- `ShowTradeHistoryPublic` (`PATCH /api/auth/privacy`): işlem geçmişinin herkese açık olup olmadığını kontrol eder — **şu an bunu tüketen bir "leaderboard" backend endpoint'i yok** (bkz. Bilinen riskler).
+
+## Portföy & işlem kuralları
+
+- `PortfolioController` tamamı `[Authorize]`; fiyat her zaman **sunucuda** son kapanıştan/derinlikten hesaplanır — istemci fiyat göndermez.
+- BIST alım-satım yalnızca **18:45–ertesi gün 10:00 (TR)** arası açık (`BistTradingHours`); seans saatlerinde `BIST_CLOSED` hatası döner. Kripto 7/24 açık.
+- Kripto al/sat, Binance order book derinliğinden (`GetDepthAsync`, top-20) kademe kademe erir (`CryptoMarketService.MatchBuy/MatchSell`); derinlik yetersizse işlem reddedilir.
+- Alım/satım tek `SaveChangesAsync` içinde yapılır; **optimistic concurrency / row-lock yok** — aynı kullanıcıdan art arda hızlı çift istek gelirse (çift tık, çift sekme) bakiye kontrolü aynı anda geçebilir (bkz. Bilinen riskler).
 
 ## Zaman makinesi (kısa)
 
@@ -208,3 +237,20 @@ Günlük asıl iş yukarıdaki Quartz job’lardadır. Kayıt yeri: `Infrastruct
 - Eski Python TV sync (`TvSync` / `sync.py`)  
 - Eski Yahoo günlük fiyat job’ları (`DailyPriceUpdateJob` / `HistoryRefreshJob`)  
 - Python import endpoint’leri (`PUT/POST …/price-histories`, wipe)  
+
+## Bilinen riskler / TODO (2026-08-02 taraması)
+
+> Güncel/canlı liste: `md/RISKLER.md` (durum işaretli, backend + frontend birlikte).
+
+**Kritik — hemen bakılmalı:**
+- `SanalBorsa/appsettings.Production.json` **git’e commit’lenmiş** ve **public GitHub reposunda** — içinde gerçek Azure SQL admin şifresi (`sanalborsa_admin`) ve prod JWT secret açık metin duruyor. Şifre ve JWT secret rotasyona alınmalı, dosya git geçmişinden temizlenmeli (BFG / filter-repo), ileride `appsettings.Production.json` sadece placeholder tutup gerçek değerler ortam değişkeni / secret store’dan gelmeli.
+- `StocksController`, `CryptoController`, `TimeMachineController`, `CorporateActionsController`, `IndicesController` altındaki tüm sync/bootstrap/compute endpoint’leri **`[Authorize]` değil** — herkes `POST /api/stocks/sync-prices`, `/bootstrap`, `/corporate-actions/sync` (full=true → İş Yatırım’a 30-60 dk’lık iş), `/universe/sync` (rastgele sembol ekleme) gibi ağır/veri-bozucu işleri anonim tetikleyebilir. En az admin-key veya `[Authorize(Roles="Admin")]` eklenmeli.
+
+**Orta:**
+- Login/register/refresh endpoint’lerinde rate limiting yok (`AddRateLimiter` kullanılmıyor) — brute-force / kullanıcı adı enumeration riski.
+- Refresh token DB’de tutulmuyor, revoke/logout-everywhere mekanizması yok; `secret + "_refresh"` ile anahtar türetmek yerine ayrı bir secret kullanılması daha sağlam olur.
+- CORS `Cors:AllowAnyOrigin=true` (appsettings.Production.json) + `AllowCredentials()` — pratikte tüm originlere açık. Bearer token kullanıldığı için CSRF riski düşük ama origin kısıtlaması fiilen devre dışı; zaten tanımlı `AllowedOrigins` listesi kullanılabilir.
+- BuyStock/SellStock/BuyCrypto/SellCrypto handler’larında concurrency token yok — art arda hızlı çift istek bakiyeyi negatife düşürebilir (düşük risk, sanal para ama düzeltilmeli).
+- Leaderboard (liderlik) için backend’de hiç endpoint yok; `ShowTradeHistoryPublic` alanı şu an tüketilmiyor (frontend’de mock veriyle gösteriliyor — bkz. frontend OZET).
+
+**Çözüldü (2026-08-02):** Gece job'ları (TopGainers, TimeMachineLeaders, CryptoHistorySync) haftalarca sessizce atlanıyordu — Quartz `RAMJobStore` bellekte tutuluyordu, process her restart'ta (deploy veya Render'ın trafiksizken uykuya dalması) o güne ait tetiklemeyi kaybediyordu, hata da vermiyordu. Hangfire'a (SQL Server storage) geçildi: job durumu artık DB'de kalıcı, process ne zaman ayağa kalkarsa vakti geçmiş job'u bir kez telafi ediyor; `/hangfire` dashboard'ından görünürlük var. Detay: `md/JOBLAR.md`. **Not:** Render'ın kendisi hâlâ trafiksizken uyuyabiliyor — bu, "process tamamen kapalıyken hiçbir şey çalışmaz" senaryosunu çözmez, sadece process her uyandığında kaçırılanı yakalar. Gece boyu sürekli ayakta kalması isteniyorsa ayrıca bir keep-alive ping (örn. cron-job.org) veya Render'ın kendi Cron Job'u gerekir.
