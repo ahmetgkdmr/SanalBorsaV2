@@ -16,12 +16,17 @@ public sealed class HangfireDashboardAuthFilter : IDashboardAuthorizationFilter
 
     public HangfireDashboardAuthFilter(IConfiguration config)
     {
+        // Hangfire:DashboardUser — appsettings'ten oku, yoksa ortam değişkeninden (Hangfire__DashboardUser)
         _user = config["Hangfire:DashboardUser"]
+            ?? Environment.GetEnvironmentVariable("Hangfire__DashboardUser")
             ?? throw new InvalidOperationException(
-                "Hangfire:DashboardUser eksik. Ortam değişkeni: Hangfire__DashboardUser.");
+                "Hangfire:DashboardUser eksik. Appsettings'te 'Hangfire:DashboardUser' veya ortam değişkeni 'Hangfire__DashboardUser' set edin.");
+
+        // Hangfire:DashboardPassword — appsettings'ten oku, yoksa ortam değişkeninden (Hangfire__DashboardPassword)
         _password = config["Hangfire:DashboardPassword"]
+            ?? Environment.GetEnvironmentVariable("Hangfire__DashboardPassword")
             ?? throw new InvalidOperationException(
-                "Hangfire:DashboardPassword eksik. Ortam değişkeni: Hangfire__DashboardPassword.");
+                "Hangfire:DashboardPassword eksik. Appsettings'te 'Hangfire:DashboardPassword' veya ortam değişkeni 'Hangfire__DashboardPassword' set edin.");
     }
 
     public bool Authorize(DashboardContext context)
