@@ -41,8 +41,7 @@ public record UserDto(
     string? PhoneNumber,
     string? AvatarUrl,
     string Provider,
-    decimal PortfolioCashTry,
-    decimal PortfolioCashUsd,
+    decimal PortfolioCash,
     bool ShowTradeHistoryPublic = true);
 
 public class LoginWithFirebaseCommandHandler
@@ -118,7 +117,6 @@ public class LoginWithFirebaseCommandHandler
                 user.AvatarUrl,
                 claims.Provider,
                 portfolio?.Cash ?? 1_000_000m,
-                portfolio?.CashUsd ?? 100_000m,
                 user.ShowTradeHistoryPublic),
             ProfileHint: null);
     }

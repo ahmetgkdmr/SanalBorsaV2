@@ -1,5 +1,6 @@
 using AutoMapper;
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
@@ -29,10 +30,12 @@ public class GetUsStocksQueryHandler : IRequestHandler<GetUsStocksQuery, PagedRe
 
         var ordered = all.OrderBy(s => s.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
 
+        var stockIds = ordered.Select(s => s.Id).ToList();
         var snapshots = await _uow.PriceHistories.GetMarketSnapshotsAsync(
-            ordered.Select(s => s.Id).ToList(),
+            stockIds,
             sparklineDays: 28,
             cancellationToken);
+        var intradaySparklines = await _uow.IntradayBars.GetSparklinesByStockIdsAsync(stockIds, cancellationToken);
 
         var items = ordered
             .Select(stock =>
@@ -41,13 +44,17 @@ public class GetUsStocksQueryHandler : IRequestHandler<GetUsStocksQuery, PagedRe
                 if (!snapshots.TryGetValue(stock.Id, out var snap))
                     return dto;
 
+                var sparkline = intradaySparklines.TryGetValue(stock.Id, out var intraday) && intraday.Count > 0
+                    ? SparklineHelper.PrependPreviousClose(intraday, snap.PreviousClose)
+                    : snap.Sparkline;
+
                 return dto with
                 {
                     LastClose = snap.LastClose,
                     LastOpen = snap.LastOpen,
                     PreviousClose = snap.PreviousClose,
                     LastVolume = snap.LastVolume,
-                    Sparkline = snap.Sparkline,
+                    Sparkline = sparkline,
                 };
             })
             .ToList();

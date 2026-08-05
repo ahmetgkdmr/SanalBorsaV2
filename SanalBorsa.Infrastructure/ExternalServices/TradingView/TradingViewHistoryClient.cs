@@ -96,6 +96,88 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
         return bars.ToDictionary(b => b.Date.Date, b => b.Close);
     }
 
+    public async Task<IReadOnlyList<(DateTime BarTimeUtc, decimal Close)>> GetIntradayBarsByTvSymbolAsync(
+        string tvSymbol,
+        string resolution = "15",
+        CancellationToken ct = default)
+    {
+        const int intradayBars = 50; // bir seans ~26-32 bar (15dk); pay bırakıyoruz
+
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await EnsureConnectedAsync(ct);
+
+            var raw = await RequestIntradaySeriesAsync(tvSymbol.Trim(), resolution, intradayBars, ct);
+            if (string.IsNullOrEmpty(raw) ||
+                raw.Contains("symbol_error", StringComparison.Ordinal) ||
+                raw.Contains("series_error", StringComparison.Ordinal))
+            {
+                await TryReconnectAsync(CancellationToken.None);
+                await EnsureConnectedAsync(ct);
+                raw = await RequestIntradaySeriesAsync(tvSymbol.Trim(), resolution, intradayBars, ct);
+            }
+
+            if (string.IsNullOrEmpty(raw) ||
+                raw.Contains("symbol_error", StringComparison.Ordinal) ||
+                raw.Contains("series_error", StringComparison.Ordinal))
+            {
+                _logger.LogDebug("TV WS intraday: {Symbol} res={Res} boş/hata", tvSymbol, resolution);
+                return [];
+            }
+
+            var bars = ParseIntradayBars(raw);
+            if (bars.Count > 0)
+            {
+                _logger.LogInformation(
+                    "TV WS intraday: {Symbol} res={Res} {Count} bar ({From:HH:mm} → {To:HH:mm})",
+                    tvSymbol, resolution, bars.Count, bars[0].BarTimeUtc, bars[^1].BarTimeUtc);
+            }
+
+            return bars;
+        }
+        catch (Exception ex) when (ex is WebSocketException or IOException)
+        {
+            _logger.LogWarning(ex, "TV WS intraday failed for {Symbol}", tvSymbol);
+            await TryReconnectAsync(CancellationToken.None);
+            return [];
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Intraday için sadece TEK istek — <see cref="RequestSeriesWithHistoryAsync"/>'in aksine
+    /// geçmişe doğru <c>request_more_data</c> ile kaymaz (sadece son seans gününü istiyoruz).
+    /// </summary>
+    private async Task<string?> RequestIntradaySeriesAsync(
+        string symbol,
+        string resolution,
+        int nBars,
+        CancellationToken ct)
+    {
+        var seq = Interlocked.Increment(ref _symbolSeq);
+        _chartSession = "cs_" + Guid.NewGuid().ToString("N")[..12];
+        var symId = $"sds_sym_{seq}";
+        var seriesId = $"sds_{seq}";
+        var seriesName = $"s{seq}";
+
+        while (_inbox.TryDequeue(out _)) { }
+
+        await SendAsync("chart_create_session", [_chartSession, ""], ct);
+
+        var resolveArg =
+            "={\"symbol\":\"" + symbol + "\",\"adjustment\":\"none\",\"session\":\"regular\"}";
+
+        await SendAsync("resolve_symbol", [_chartSession, symId, resolveArg], ct);
+        await SendAsync("create_series",
+            [_chartSession, seriesId, seriesName, symId, resolution, nBars, ""], ct);
+
+        return await WaitForSeriesAsync(TimeSpan.FromSeconds(20), ct);
+    }
+
     private async Task<IReadOnlyList<StockPriceHistory>> FetchBarsAsync(
         string symbol,
         DateTime from,
@@ -480,6 +562,44 @@ public sealed class TradingViewHistoryClient : ITradingViewHistoryService, IAsyn
 
         list.Sort((a, b) => a.Date.CompareTo(b.Date));
         return list;
+    }
+
+    /// <summary>
+    /// <see cref="ParseBars"/>'ın aksine barları GÜNE göre sıkıştırmaz — her bar saat dahil ayrı
+    /// satır olarak kalır. Seans günü, dönen barların en yaygın (mod) tarihinden türetilir (hafta
+    /// sonu/tatil sonrası TV'nin döndürdüğü "son işlem günü" ne olursa olsun doğru çalışır); önceki
+    /// seanstan sızan tek bar(lar) bu filtreyle elenir.
+    /// </summary>
+    private static List<(DateTime BarTimeUtc, decimal Close)> ParseIntradayBars(string raw)
+    {
+        // TV WS bazen aynı bar'ı iki kez gönderir (forming → finalized) — aynı barTime'a ait
+        // ikinci mesaj öncekinin üzerine yazar (dictionary), tek satırlık ParseBars deseniyle tutarlı.
+        var byTime = new Dictionary<DateTime, decimal>();
+        foreach (Match m in BarRx.Matches(raw))
+        {
+            if (!TryParseInv(m.Groups[1].Value, out var ts) ||
+                !TryParseInv(m.Groups[5].Value, out var close) ||
+                close <= 0)
+                continue;
+
+            var barTime = DateTimeOffset.FromUnixTimeSeconds((long)ts).UtcDateTime;
+            byTime[barTime] = Math.Round((decimal)close, 4);
+        }
+
+        if (byTime.Count == 0)
+            return [];
+
+        var sessionDate = byTime.Keys
+            .GroupBy(t => t.Date)
+            .OrderByDescending(g => g.Count())
+            .ThenByDescending(g => g.Key)
+            .First().Key;
+
+        return byTime
+            .Where(kv => kv.Key.Date == sessionDate)
+            .OrderBy(kv => kv.Key)
+            .Select(kv => (BarTimeUtc: kv.Key, Close: kv.Value))
+            .ToList();
     }
 
     private static bool TryParseInv(string s, out double value) =>

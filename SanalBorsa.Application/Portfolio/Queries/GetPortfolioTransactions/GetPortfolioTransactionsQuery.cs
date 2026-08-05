@@ -46,12 +46,13 @@ public class GetPortfolioTransactionsQueryHandler
         var dtos = items.Select(t => new TransactionDto(
             t.Id,
             t.Symbol,
-            t.MarketType == MarketType.Crypto ? "crypto" : "bist",
+            PortfolioDto.MarketTypeToString(t.MarketType),
             t.Side == TxSide.Buy ? "buy" : "sell",
             t.Quantity,
             t.Price,
             t.Total,
             t.FillBreakdownJson,
+            t.ExchangeRateAtTrade,
             t.ExecutedAt)).ToList();
 
         return new PagedTransactionsDto(dtos, page, pageSize, total, totalPages);

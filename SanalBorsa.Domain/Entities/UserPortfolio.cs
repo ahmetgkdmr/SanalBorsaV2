@@ -6,11 +6,8 @@ public class UserPortfolio
 
     public Guid UserId { get; set; }
 
-    /// <summary>BIST nakit bakiyesi (TRY).</summary>
+    /// <summary>Tek nakit havuzu (TRY) — BIST, Kripto ve ABD hisseleri ortak kullanır.</summary>
     public decimal Cash { get; set; } = 1_000_000m;
-
-    /// <summary>Kripto nakit bakiyesi (USD).</summary>
-    public decimal CashUsd { get; set; } = 100_000m;
 
     public DateTime CreatedAt { get; set; }
 
@@ -61,6 +58,9 @@ public class PortfolioTransaction
 
     /// <summary>Kripto emirlerinde kademe erime özeti (JSON).</summary>
     public string? FillBreakdownJson { get; set; }
+
+    /// <summary>Crypto/UsStocks işlemlerinde kullanılan anlık USD/TRY kuru (BIST'te null).</summary>
+    public decimal? ExchangeRateAtTrade { get; set; }
 
     public DateTime ExecutedAt { get; set; }
 

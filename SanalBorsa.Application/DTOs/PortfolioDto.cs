@@ -5,8 +5,7 @@ namespace SanalBorsa.Application.DTOs;
 public record PortfolioDto(
     Guid   Id,
     Guid   UserId,
-    decimal CashTry,
-    decimal CashUsd,
+    decimal Cash,
     IReadOnlyList<HoldingDto> Holdings,
     IReadOnlyList<TransactionDto> Transactions)
 {
@@ -14,14 +13,20 @@ public record PortfolioDto(
         p.Id,
         p.UserId,
         p.Cash,
-        p.CashUsd,
         p.Holdings.Select(h => new HoldingDto(
             h.Symbol,
-            h.MarketType == MarketType.Crypto ? "crypto" : "bist",
+            MarketTypeToString(h.MarketType),
             h.Quantity,
             h.AvgCost)).ToList(),
         // İşlem geçmişi ayrı endpoint'ten sayfalanır; buraya yüklenmez.
         Array.Empty<TransactionDto>());
+
+    public static string MarketTypeToString(MarketType mt) => mt switch
+    {
+        MarketType.Crypto   => "crypto",
+        MarketType.UsStocks => "us",
+        _                   => "bist",
+    };
 }
 
 public record HoldingDto(
@@ -39,4 +44,5 @@ public record TransactionDto(
     decimal Price,
     decimal Total,
     string? FillBreakdownJson,
+    decimal? ExchangeRateAtTrade,
     DateTime ExecutedAt);

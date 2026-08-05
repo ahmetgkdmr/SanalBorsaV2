@@ -84,7 +84,6 @@ public class RegisterWithPasswordCommandHandler
             Id = Guid.NewGuid(),
             UserId = user.Id,
             Cash = 1_000_000m,
-            CashUsd = 100_000m,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         }, cancellationToken);
@@ -107,7 +106,6 @@ public class RegisterWithPasswordCommandHandler
                 user.AvatarUrl,
                 "local",
                 portfolio?.Cash ?? 1_000_000m,
-                portfolio?.CashUsd ?? 100_000m,
                 user.ShowTradeHistoryPublic));
     }
 }

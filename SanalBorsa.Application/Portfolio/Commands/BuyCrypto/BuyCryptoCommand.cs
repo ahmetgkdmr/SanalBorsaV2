@@ -11,6 +11,7 @@ namespace SanalBorsa.Application.Portfolio.Commands.BuyCrypto;
 public record BuyCryptoCommand(
     Guid UserId,
     string Symbol,
+    decimal? TryAmount,
     decimal? QuoteUsd,
     decimal? Quantity) : IRequest<CryptoTradeResultDto>;
 
@@ -22,11 +23,13 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
 {
     private readonly IUnitOfWork _uow;
     private readonly ICryptoMarketService _crypto;
+    private readonly IPortfolioFxRateProvider _fx;
 
-    public BuyCryptoCommandHandler(IUnitOfWork uow, ICryptoMarketService crypto)
+    public BuyCryptoCommandHandler(IUnitOfWork uow, ICryptoMarketService crypto, IPortfolioFxRateProvider fx)
     {
         _uow = uow;
         _crypto = crypto;
+        _fx = fx;
     }
 
     public async Task<CryptoTradeResultDto> Handle(BuyCryptoCommand request, CancellationToken cancellationToken)
@@ -34,17 +37,23 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);
 
+        decimal? quoteUsd = request.QuoteUsd;
+        var rate = await _fx.GetUsdTryRateAsync(cancellationToken);
+        if (request.TryAmount is { } tryAmount)
+            quoteUsd = tryAmount / rate;
+
         var fill = await _crypto.PreviewBuyAsync(
-            request.Symbol, request.QuoteUsd, request.Quantity, cancellationToken);
+            request.Symbol, quoteUsd, request.Quantity, cancellationToken);
 
         if (!fill.FullyFilled || fill.FilledQuantity <= 0)
             throw new InvalidOperationException(
                 "Derinlik yetersiz — emir tamamen doldurulamadı. Daha küçük tutar deneyin.");
 
-        if (fill.Total > portfolio.CashUsd)
-            throw new InvalidOperationException("Yetersiz USD bakiyesi.");
+        var tryEquivalent = fill.Total * rate;
+        if (tryEquivalent > portfolio.Cash)
+            throw new InvalidOperationException("Yetersiz bakiye.");
 
-        portfolio.CashUsd -= fill.Total;
+        portfolio.Cash -= tryEquivalent;
 
         var symbol = fill.Symbol;
         var existing = portfolio.Holdings.FirstOrDefault(h =>
@@ -79,6 +88,7 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
             Price             = fill.AvgPrice,
             Total             = fill.Total,
             FillBreakdownJson = JsonSerializer.Serialize(fill.Levels),
+            ExchangeRateAtTrade = rate,
             ExecutedAt        = DateTime.UtcNow,
         });
 

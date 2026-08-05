@@ -71,4 +71,36 @@ public class FirebaseAuthProvider : IFirebaseAuthProvider
             return null;
         }
     }
+
+    public async Task<int> DeleteAllUsersAsync(CancellationToken ct = default)
+    {
+        _initializer.EnsureInitialized(_logger);
+
+        if (!_initializer.IsReady || FirebaseApp.DefaultInstance is null)
+        {
+            throw new InvalidOperationException(
+                "Sunucu Firebase kimlik doğrulaması yapılandırılmamış.");
+        }
+
+        var uids = new List<string>();
+        await foreach (var user in FirebaseAuth.DefaultInstance.ListUsersAsync(null).WithCancellation(ct))
+            uids.Add(user.Uid);
+
+        var deleted = 0;
+        foreach (var batch in uids.Chunk(1000))
+        {
+            var result = await FirebaseAuth.DefaultInstance.DeleteUsersAsync(batch, ct);
+            deleted += result.SuccessCount;
+            if (result.FailureCount > 0)
+            {
+                foreach (var err in result.Errors)
+                    _logger.LogWarning(
+                        "Firebase kullanıcı silme hatası (index {Index}): {Reason}",
+                        err.Index, err.Reason);
+            }
+        }
+
+        _logger.LogInformation("Firebase: {Count} kullanıcı silindi.", deleted);
+        return deleted;
+    }
 }

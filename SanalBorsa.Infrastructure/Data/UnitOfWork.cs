@@ -10,6 +10,7 @@ public class UnitOfWork : IUnitOfWork
 
     private IStockRepository?              _stocks;
     private IStockPriceHistoryRepository?  _priceHistories;
+    private IStockIntradayBarRepository?   _intradayBars;
     private ICorporateActionRepository?    _corporateActions;
     private IUserRepository?               _users;
     private IPortfolioRepository?          _portfolios;
@@ -23,6 +24,7 @@ public class UnitOfWork : IUnitOfWork
 
     public IStockRepository             Stocks             => _stocks             ??= new StockRepository(_context);
     public IStockPriceHistoryRepository PriceHistories     => _priceHistories     ??= new StockPriceHistoryRepository(_context);
+    public IStockIntradayBarRepository  IntradayBars       => _intradayBars       ??= new StockIntradayBarRepository(_context);
     public ICorporateActionRepository   CorporateActions   => _corporateActions   ??= new CorporateActionRepository(_context);
     public IUserRepository              Users              => _users              ??= new UserRepository(_context);
     public IPortfolioRepository         Portfolios         => _portfolios         ??= new PortfolioRepository(_context);

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SanalBorsa.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using SanalBorsa.Infrastructure.Data;
 namespace SanalBorsa.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805101150_UnifyPortfolioCashPool")]
+    partial class UnifyPortfolioCashPool
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -229,38 +232,6 @@ namespace SanalBorsa.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Stocks", (string)null);
-                });
-
-            modelBuilder.Entity("SanalBorsa.Domain.Entities.StockIntradayBar", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("BarTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("Close")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
-
-                    b.Property<int>("StockId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StockId")
-                        .HasDatabaseName("IX_StockIntradayBars_StockId");
-
-                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("StockId"), new[] { "BarTime", "Close" });
-
-                    b.HasIndex("StockId", "BarTime")
-                        .IsUnique()
-                        .HasDatabaseName("IX_StockIntradayBars_StockId_BarTime");
-
-                    b.ToTable("StockIntradayBars", (string)null);
                 });
 
             modelBuilder.Entity("SanalBorsa.Domain.Entities.StockPriceHistory", b =>
@@ -575,17 +546,6 @@ namespace SanalBorsa.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Portfolio");
-                });
-
-            modelBuilder.Entity("SanalBorsa.Domain.Entities.StockIntradayBar", b =>
-                {
-                    b.HasOne("SanalBorsa.Domain.Entities.Stock", "Stock")
-                        .WithMany()
-                        .HasForeignKey("StockId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Stock");
                 });
 
             modelBuilder.Entity("SanalBorsa.Domain.Entities.StockPriceHistory", b =>

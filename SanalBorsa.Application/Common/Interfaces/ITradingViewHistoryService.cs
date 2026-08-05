@@ -35,4 +35,13 @@ public interface ITradingViewHistoryService
         DateTime from,
         DateTime to,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Son tam seans gününün intraday bar'ları (varsayılan 15 dakika) — ana ekran sparkline'ı için.
+    /// Geçmişe dönük değil, sadece TradingView'ın döndürdüğü en güncel seans günü.
+    /// </summary>
+    Task<IReadOnlyList<(DateTime BarTimeUtc, decimal Close)>> GetIntradayBarsByTvSymbolAsync(
+        string tvSymbol,
+        string resolution = "15",
+        CancellationToken ct = default);
 }

@@ -59,7 +59,6 @@ public class LoginWithPasswordCommandHandler
                 user.AvatarUrl,
                 "local",
                 portfolio?.Cash ?? 1_000_000m,
-                portfolio?.CashUsd ?? 100_000m,
                 user.ShowTradeHistoryPublic));
     }
 }

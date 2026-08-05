@@ -40,7 +40,6 @@ public class UpdatePrivacySettingsCommandHandler
             user.AvatarUrl,
             user.Provider.ToString().ToLowerInvariant(),
             portfolio?.Cash ?? 1_000_000m,
-            portfolio?.CashUsd ?? 100_000m,
             user.ShowTradeHistoryPublic);
     }
 }

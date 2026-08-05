@@ -8,6 +8,8 @@ public interface IUnitOfWork : IDisposable
 
     IStockPriceHistoryRepository PriceHistories { get; }
 
+    IStockIntradayBarRepository IntradayBars { get; }
+
     ICorporateActionRepository CorporateActions { get; }
 
     IUserRepository Users { get; }

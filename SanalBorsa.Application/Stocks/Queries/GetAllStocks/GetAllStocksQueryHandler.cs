@@ -39,10 +39,12 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
+            // Sadece hisse kodunda (sembol) ara — şirket tam ismini de dahil etmek kısa aramalarda
+            // (ör. tek harf) alakasız onlarca sonuç üretiyordu (ör. "K" → isminde "Bankası" geçen
+            // her şirket).
             var search = request.Search.Trim().ToUpperInvariant();
             filtered = filtered.Where(s =>
-                s.Symbol.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                s.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+                s.Symbol.Contains(search, StringComparison.OrdinalIgnoreCase));
         }
 
         var hasIndexFilter = !string.IsNullOrWhiteSpace(request.IndexFilter) &&
@@ -79,10 +81,12 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
             .Take(pageSize)
             .ToList();
 
+        var pageIds = pageItems.Select(s => s.Id).ToList();
         var snapshots = await _uow.PriceHistories.GetMarketSnapshotsAsync(
-            pageItems.Select(s => s.Id).ToList(),
+            pageIds,
             sparklineDays: 28,
             cancellationToken);
+        var intradaySparklines = await _uow.IntradayBars.GetSparklinesByStockIdsAsync(pageIds, cancellationToken);
 
         var items = pageItems
             .Select(stock =>
@@ -112,13 +116,21 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
                     };
                 }
 
+                // Intraday sparkline sadece dünün açılış→kapanış hareketini taşır; badge'deki
+                // değişim yüzdesi ÖNCEKİ günün kapanışına göre hesaplandığı için (bkz. BuildSnapshot),
+                // grafiğin başına o referans noktasını eklemezsek gap-up/gap-down günlerinde grafik
+                // yönü badge'in yönüyle çelişebilir (ör. badge yeşil ama grafik düşen görünür).
+                var sparkline = intradaySparklines.TryGetValue(stock.Id, out var intraday) && intraday.Count > 0
+                    ? SparklineHelper.PrependPreviousClose(intraday, snap.PreviousClose)
+                    : snap.Sparkline;
+
                 return dto with
                 {
                     LastClose = snap.LastClose,
                     LastOpen = snap.LastOpen,
                     PreviousClose = snap.PreviousClose,
                     LastVolume = snap.LastVolume,
-                    Sparkline = snap.Sparkline,
+                    Sparkline = sparkline,
                     BistIndices = bistIndices,
                     TopGainerPeriod = period,
                     TopGainerLabel = label,

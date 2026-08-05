@@ -1,4 +1,6 @@
 using Hangfire;
+using SanalBorsa.Application.Common;
+using SanalBorsa.Domain.Entities;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
@@ -27,6 +29,20 @@ public static class RecurringJobRegistrar
             job => job.RunAsync(CancellationToken.None),
             "35 18 * * *",
             new RecurringJobOptions { TimeZone = turkeyTz });
+
+        // 18:45 TR — BIST intraday sparkline (18:30 fiyat senkronundan sonra)
+        jobs.AddOrUpdate<IntradaySparklineSyncJob>(
+            "intraday-sparkline-sync-bist",
+            job => job.RunAsync(MarketType.Bist, CancellationToken.None),
+            "45 18 * * *",
+            new RecurringJobOptions { TimeZone = turkeyTz });
+
+        // 16:05 ET — ABD intraday sparkline (NYSE kapanışından hemen sonra, DST otomatik)
+        jobs.AddOrUpdate<IntradaySparklineSyncJob>(
+            "intraday-sparkline-sync-us",
+            job => job.RunAsync(MarketType.UsStocks, CancellationToken.None),
+            "5 16 * * 1-5",
+            new RecurringJobOptions { TimeZone = NyseTradingHours.ResolveEasternTimeZone() });
 
         // 23:00 TR — dönem şampiyonları (top gainers)
         jobs.AddOrUpdate<TopGainersJob>(

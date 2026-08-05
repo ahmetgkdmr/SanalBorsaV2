@@ -62,7 +62,7 @@ public class CompleteRegistrationCommandHandler
                 tokensExisting.AccessToken,
                 tokensExisting.RefreshToken,
                 tokensExisting.ExpiresAt,
-                ToDto(existing, claims.Provider, portfolioExisting?.Cash ?? 1_000_000m, portfolioExisting?.CashUsd ?? 100_000m));
+                ToDto(existing, claims.Provider, portfolioExisting?.Cash ?? 1_000_000m));
         }
 
         if (await _uow.Users.UsernameExistsAsync(username, cancellationToken))
@@ -98,7 +98,6 @@ public class CompleteRegistrationCommandHandler
             Id = Guid.NewGuid(),
             UserId = user.Id,
             Cash = 1_000_000m,
-            CashUsd = 100_000m,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         }, cancellationToken);
@@ -114,14 +113,13 @@ public class CompleteRegistrationCommandHandler
             tokens.AccessToken,
             tokens.RefreshToken,
             tokens.ExpiresAt,
-            ToDto(user, claims.Provider, portfolio?.Cash ?? 1_000_000m, portfolio?.CashUsd ?? 100_000m));
+            ToDto(user, claims.Provider, portfolio?.Cash ?? 1_000_000m));
     }
 
     private static UserDto ToDto(
         User user,
         string provider,
-        decimal cashTry,
-        decimal cashUsd)
+        decimal cashTry)
         => new(
             user.Id,
             user.Username,
@@ -131,6 +129,5 @@ public class CompleteRegistrationCommandHandler
             user.AvatarUrl,
             provider,
             cashTry,
-            cashUsd,
             user.ShowTradeHistoryPublic);
 }

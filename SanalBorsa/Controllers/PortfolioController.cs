@@ -7,6 +7,8 @@ using SanalBorsa.Application.Portfolio.Commands.BuyCrypto;
 using SanalBorsa.Application.Portfolio.Commands.BuyStock;
 using SanalBorsa.Application.Portfolio.Commands.SellCrypto;
 using SanalBorsa.Application.Portfolio.Commands.SellStock;
+using SanalBorsa.Application.Portfolio.Commands.BuyUsStock;
+using SanalBorsa.Application.Portfolio.Commands.SellUsStock;
 using SanalBorsa.Application.Portfolio.Queries.GetPortfolio;
 using SanalBorsa.Application.Portfolio.Queries.GetPortfolioTransactions;
 
@@ -74,7 +76,7 @@ public class PortfolioController : ControllerBase
     public async Task<IActionResult> BuyCrypto([FromBody] CryptoTradeRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(
-            new BuyCryptoCommand(GetUserId(), request.Symbol, request.QuoteUsd, request.Quantity), ct);
+            new BuyCryptoCommand(GetUserId(), request.Symbol, request.TryAmount, request.QuoteUsd, request.Quantity), ct);
         return Ok(result);
     }
 
@@ -91,6 +93,32 @@ public class PortfolioController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>ABD hissesi al — TL tutarı girilir, anlık kurla kesirli hisse hesaplanır.</summary>
+    [HttpPost("us/buy")]
+    [ProducesResponseType(typeof(PortfolioDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> BuyUsStock([FromBody] UsStockTradeRequest request, CancellationToken ct)
+    {
+        if (request.TryAmount is null or <= 0)
+            return BadRequest(new { message = "Alım için tryAmount gerekli." });
+
+        var result = await _mediator.Send(
+            new BuyUsStockCommand(GetUserId(), request.Symbol, request.TryAmount.Value), ct);
+        return Ok(result);
+    }
+
+    /// <summary>ABD hissesi sat — kesirli miktar, anlık kurla TL'ye çevrilir.</summary>
+    [HttpPost("us/sell")]
+    [ProducesResponseType(typeof(PortfolioDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SellUsStock([FromBody] UsStockTradeRequest request, CancellationToken ct)
+    {
+        if (request.Quantity is null or <= 0)
+            return BadRequest(new { message = "Satış için quantity gerekli." });
+
+        var result = await _mediator.Send(
+            new SellUsStockCommand(GetUserId(), request.Symbol, request.Quantity.Value), ct);
+        return Ok(result);
+    }
+
     private Guid GetUserId()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -102,4 +130,6 @@ public class PortfolioController : ControllerBase
 
 public record TradeRequest(string Symbol, long Lots);
 
-public record CryptoTradeRequest(string Symbol, decimal? QuoteUsd, decimal? Quantity);
+public record CryptoTradeRequest(string Symbol, decimal? TryAmount, decimal? QuoteUsd, decimal? Quantity);
+
+public record UsStockTradeRequest(string Symbol, decimal? TryAmount, decimal? Quantity);

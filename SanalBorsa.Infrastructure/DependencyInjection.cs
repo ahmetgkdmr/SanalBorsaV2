@@ -141,6 +141,7 @@ public static class DependencyInjection
         services.AddScoped<IBistRawPriceService, BistRawPriceService>();
         services.AddScoped<IPriceAnomalyScheduler, HangfirePriceAnomalyScheduler>();
         services.AddScoped<SanalBorsa.Application.Common.Services.PriceAnomalyGuard>();
+        services.AddScoped<IPortfolioFxRateProvider, SanalBorsa.Infrastructure.ExternalServices.Fx.PortfolioFxRateProvider>();
 
         services.AddHttpClient("Tcmb", client =>
         {

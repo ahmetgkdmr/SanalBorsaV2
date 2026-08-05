@@ -7,6 +7,7 @@ using SanalBorsa.Application.Stocks.Commands.BootstrapMarketData;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
 using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
+using SanalBorsa.Application.Stocks.Commands.RefreshIntradaySparkline;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
 using SanalBorsa.Application.Stocks.Commands.SyncStockUniverse;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
@@ -172,6 +173,17 @@ public class StocksController : ControllerBase
             lookbackDays,
             jobId,
         });
+    }
+
+    /// <summary>Önceki tam seans gününün 15dk sparkline bar'larını yeniler (normalde 18:45 TR cron'u).</summary>
+    [HttpPost("intraday-sparkline/sync")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public IActionResult SyncIntradaySparkline()
+    {
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new RefreshIntradaySparklineCommand(MarketType.Bist), CancellationToken.None));
+
+        return Accepted(new { message = "BIST intraday sparkline sync başladı.", jobId });
     }
 
     /// <summary>Metadata sync (isim/sektör vb.) — fiyat çekmez.</summary>

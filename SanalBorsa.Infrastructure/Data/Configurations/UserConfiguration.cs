@@ -43,7 +43,6 @@ public class UserPortfolioConfiguration : IEntityTypeConfiguration<UserPortfolio
         builder.ToTable("UserPortfolios");
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Cash).HasPrecision(18, 4);
-        builder.Property(p => p.CashUsd).HasPrecision(18, 4);
         builder.HasIndex(p => p.UserId).IsUnique();
 
         builder.HasMany(p => p.Holdings)
@@ -82,5 +81,6 @@ public class PortfolioTransactionConfiguration : IEntityTypeConfiguration<Portfo
         builder.Property(t => t.Price).HasPrecision(18, 8);
         builder.Property(t => t.Total).HasPrecision(18, 8);
         builder.Property(t => t.FillBreakdownJson).HasColumnType("nvarchar(max)");
+        builder.Property(t => t.ExchangeRateAtTrade).HasPrecision(18, 4);
     }
 }

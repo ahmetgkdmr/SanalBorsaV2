@@ -18,11 +18,13 @@ public class SellCryptoCommandHandler
 {
     private readonly IUnitOfWork _uow;
     private readonly ICryptoMarketService _crypto;
+    private readonly IPortfolioFxRateProvider _fx;
 
-    public SellCryptoCommandHandler(IUnitOfWork uow, ICryptoMarketService crypto)
+    public SellCryptoCommandHandler(IUnitOfWork uow, ICryptoMarketService crypto, IPortfolioFxRateProvider fx)
     {
         _uow = uow;
         _crypto = crypto;
+        _fx = fx;
     }
 
     public async Task<BuyCrypto.CryptoTradeResultDto> Handle(
@@ -52,7 +54,9 @@ public class SellCryptoCommandHandler
         if (holding.Quantity <= 0.00000001m)
             portfolio.Holdings.Remove(holding);
 
-        portfolio.CashUsd += fill.Total;
+        var rate = await _fx.GetUsdTryRateAsync(cancellationToken);
+        var tryEquivalent = fill.Total * rate;
+        portfolio.Cash += tryEquivalent;
 
         portfolio.Transactions.Add(new PortfolioTransaction
         {
@@ -64,6 +68,7 @@ public class SellCryptoCommandHandler
             Price             = fill.AvgPrice,
             Total             = fill.Total,
             FillBreakdownJson = JsonSerializer.Serialize(fill.Levels),
+            ExchangeRateAtTrade = rate,
             ExecutedAt        = DateTime.UtcNow,
         });
 

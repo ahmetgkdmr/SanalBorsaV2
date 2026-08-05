@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Application.Stocks.Commands.RefreshIntradaySparkline;
 using SanalBorsa.Application.Stocks.Commands.SyncUsAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncUsCorporateActions;
 using SanalBorsa.Application.Stocks.Commands.SyncUsDailyPrices;
@@ -99,6 +100,17 @@ public class UsStocksController : ControllerBase
         var jobId = _jobs.Enqueue<IMediator>(m => m.Send(cmd, CancellationToken.None));
 
         return Accepted(new { message = "ABD düzeltilmiş kapanış sync başladı (TradingView).", symbol, jobId });
+    }
+
+    /// <summary>Önceki tam seans gününün 15dk sparkline bar'larını yeniler (normalde 16:05 ET cron'u).</summary>
+    [HttpPost("intraday-sparkline/sync")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public IActionResult SyncIntradaySparkline()
+    {
+        var jobId = _jobs.Enqueue<IMediator>(
+            m => m.Send(new RefreshIntradaySparklineCommand(MarketType.UsStocks), CancellationToken.None));
+
+        return Accepted(new { message = "ABD intraday sparkline sync başladı.", jobId });
     }
 
     /// <summary>Hisse detayı — fiyat geçmişi + kurumsal işlemler (piyasa-bağımsız, değişiklik yok).</summary>

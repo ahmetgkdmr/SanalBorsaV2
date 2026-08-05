@@ -35,7 +35,9 @@ public sealed class BinanceMarketClient : IBinanceMarketClient
             ?? [];
 
         return raw
-            .Where(t => t.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+            .Where(t => t.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(t.Symbol, "USDTTRY", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(t.Symbol, "PAXGTRY", StringComparison.OrdinalIgnoreCase))
             .Select(t => new BinanceTicker24hr(
                 t.Symbol.ToUpperInvariant(),
                 ParseDec(t.LastPrice),
@@ -69,8 +71,15 @@ public sealed class BinanceMarketClient : IBinanceMarketClient
         {
             if (!string.Equals(s.Status, "TRADING", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (!string.Equals(s.QuoteAsset, "USDT", StringComparison.OrdinalIgnoreCase)
-                && !s.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+            var isUsdtQuoted = string.Equals(s.QuoteAsset, "USDT", StringComparison.OrdinalIgnoreCase)
+                || s.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase);
+            // Portföyün anlık USD/TRY kuru için: USDT/TRY paritesi (stablecoin ≈ USD).
+            var isUsdtTry = string.Equals(s.BaseAsset, "USDT", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.QuoteAsset, "TRY", StringComparison.OrdinalIgnoreCase);
+            // Canlı gram altın/TRY göstergesi için: PAXG/TRY (1 PAXG ≈ 1 ons altın).
+            var isGoldTry = string.Equals(s.BaseAsset, "PAXG", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.QuoteAsset, "TRY", StringComparison.OrdinalIgnoreCase);
+            if (!isUsdtQuoted && !isUsdtTry && !isGoldTry)
                 continue;
             if (s.IsSpotTradingAllowed == false)
                 continue;
