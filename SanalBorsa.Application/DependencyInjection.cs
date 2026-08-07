@@ -1,6 +1,7 @@
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Behaviors;
 using System.Reflection;
 
@@ -23,6 +24,8 @@ public static class DependencyInjection
 
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+
+        services.AddSingleton<MarketDataCacheVersion>();
 
         return services;
     }

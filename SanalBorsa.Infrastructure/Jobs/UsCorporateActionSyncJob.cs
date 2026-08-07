@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Stocks.Commands.SyncUsAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncUsCorporateActions;
 
@@ -21,11 +22,16 @@ public sealed class UsCorporateActionSyncJob
 {
     private readonly IMediator _mediator;
     private readonly ILogger<UsCorporateActionSyncJob> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
-    public UsCorporateActionSyncJob(IMediator mediator, ILogger<UsCorporateActionSyncJob> logger)
+    public UsCorporateActionSyncJob(
+        IMediator mediator,
+        ILogger<UsCorporateActionSyncJob> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _mediator = mediator;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -60,6 +66,8 @@ public sealed class UsCorporateActionSyncJob
         _logger.LogInformation(
             "UsCorporateActionSyncJob — {Count} hissede yeni olay bulundu, AdjustedClose yenileniyor: {Symbols}",
             symbols.Count, string.Join(", ", symbols));
+
+        _cacheVersion.BumpUs();
 
         foreach (var symbol in symbols)
         {

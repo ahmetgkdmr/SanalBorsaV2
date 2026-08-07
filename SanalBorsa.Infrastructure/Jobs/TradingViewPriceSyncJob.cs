@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
 
@@ -18,11 +19,16 @@ public sealed class TradingViewPriceSyncJob
 {
     private readonly IMediator _mediator;
     private readonly ILogger<TradingViewPriceSyncJob> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
-    public TradingViewPriceSyncJob(IMediator mediator, ILogger<TradingViewPriceSyncJob> logger)
+    public TradingViewPriceSyncJob(
+        IMediator mediator,
+        ILogger<TradingViewPriceSyncJob> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _mediator = mediator;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -40,6 +46,8 @@ public sealed class TradingViewPriceSyncJob
                 raw.Attempted, raw.Synced, raw.BarsUpserted, raw.Failed, raw.MaxLatestDate);
             if (raw.Error is not null)
                 throw new InvalidOperationException(raw.Error);
+
+            _cacheVersion.BumpBist();
         }
         catch (Exception ex)
         {
