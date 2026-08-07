@@ -16,7 +16,10 @@ public class SyncParityHistoryCommandHandler
     : IRequestHandler<SyncParityHistoryCommand, SyncParityHistoryResult>
 {
     private const int OverlapDays = 7;
-    private static readonly DateTime HardFloor = new(1985, 1, 1);
+    /// <summary>Sadece hiç hisse verisi yoksa kullanılan son çare — gerçek taban aşağıdaki
+    /// ResolveHistoryFloorAsync'te BIST+ABD'nin en erken hissesine göre belirleniyor, burada
+    /// yapay bir tavan (ör. eski 1985 kısıtı) YOK — kaynaklar ne kadar veriyorsa o kadar gidilir.</summary>
+    private static readonly DateTime HardFloor = new(1900, 1, 1);
 
     private readonly IUnitOfWork _uow;
     private readonly IYahooFinanceService _yahoo;
@@ -70,10 +73,17 @@ public class SyncParityHistoryCommandHandler
         return new SyncParityHistoryResult([usdDetail, eurDetail, goldDetail]);
     }
 
+    /// <summary>
+    /// BIST VE ABD hisseleri arasında hangisi daha erken başlıyorsa parite geçmişi de
+    /// oraya kadar çekilir — Zaman Makinesi'nde en eski ABD hissesi seçildiğinde bile
+    /// USD/TRY (dolayısıyla TL hesabı) bulunamıyor hatası vermesin diye.
+    /// </summary>
     private async Task<DateTime> ResolveHistoryFloorAsync(CancellationToken ct)
     {
-        var stocks = await _uow.Stocks.GetAllActiveAsync(ct, MarketType.Bist);
-        var earliest = stocks
+        var bist = await _uow.Stocks.GetAllActiveAsync(ct, MarketType.Bist);
+        var us = await _uow.Stocks.GetAllActiveAsync(ct, MarketType.UsStocks);
+
+        var earliest = bist.Concat(us)
             .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange))
             .Select(s => s.EarliestDataDate)
             .Where(d => d.HasValue)
