@@ -197,7 +197,10 @@ public class ComputeTimeMachineLeadersCommandHandler
                         Name = stock.Name,
                         StartPrice = c.StartPrice,
                         EndPrice = c.EndPrice,
-                        ReturnPct = Math.Round(c.ReturnPct, 4),
+                        // 4 ondalığa yuvarlama önceden büyük çarpanlarda (ör. 40x+) TL bazında
+                        // birkaç liralık farka büyüyordu — tek-hisse simülasyonuyla (ham AdjustedClose
+                        // oranı, yuvarlamasız) birebir eşleşmesi için burada da tam hassasiyet korunuyor.
+                        ReturnPct = c.ReturnPct,
                         EndDate = endDate,
                         ComputedAt = computedAt,
                     });

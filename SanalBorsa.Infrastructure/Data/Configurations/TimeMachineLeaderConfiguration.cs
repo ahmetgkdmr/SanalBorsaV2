@@ -32,7 +32,9 @@ public class TimeMachineLeaderConfiguration : IEntityTypeConfiguration<TimeMachi
 
         builder.Property(t => t.StartPrice).HasPrecision(18, 6);
         builder.Property(t => t.EndPrice).HasPrecision(18, 6);
-        builder.Property(t => t.ReturnPct).HasPrecision(18, 4);
+        // AdjustedClose (decimal(24,10)) ile aynı hassasiyet — 4 ondalığa yuvarlama, büyük
+        // çarpanlarda (40x+) tek-hisse simülasyonuyla TL bazında birkaç liralık farka yol açıyordu.
+        builder.Property(t => t.ReturnPct).HasPrecision(24, 10);
 
         builder.Property(t => t.ComputedAt).IsRequired();
 

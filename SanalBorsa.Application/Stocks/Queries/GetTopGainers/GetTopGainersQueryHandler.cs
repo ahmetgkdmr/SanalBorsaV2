@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Caching.Memory;
 using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.DTOs;
@@ -9,14 +10,43 @@ namespace SanalBorsa.Application.Stocks.Queries.GetTopGainers;
 
 public class GetTopGainersQueryHandler : IRequestHandler<GetTopGainersQuery, TopGainersResponseDto>
 {
-    private readonly IUnitOfWork _uow;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
-    public GetTopGainersQueryHandler(IUnitOfWork uow)
+    private readonly IUnitOfWork _uow;
+    private readonly IMemoryCache _cache;
+    private readonly MarketDataCacheVersion _cacheVersion;
+
+    public GetTopGainersQueryHandler(
+        IUnitOfWork uow,
+        IMemoryCache cache,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
+        _cache = cache;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<TopGainersResponseDto> Handle(
+        GetTopGainersQuery request,
+        CancellationToken cancellationToken)
+    {
+        var version = request.MarketType switch
+        {
+            MarketType.Crypto => _cacheVersion.Crypto,
+            MarketType.UsStocks => _cacheVersion.Us,
+            _ => _cacheVersion.Bist,
+        };
+        var cacheKey = $"top-gainers:{request.MarketType}:v{version}";
+
+        if (_cache.TryGetValue(cacheKey, out TopGainersResponseDto? cached) && cached is not null)
+            return cached;
+
+        var result = await ComputeAsync(request, cancellationToken);
+        _cache.Set(cacheKey, result, CacheTtl);
+        return result;
+    }
+
+    private async Task<TopGainersResponseDto> ComputeAsync(
         GetTopGainersQuery request,
         CancellationToken cancellationToken)
     {

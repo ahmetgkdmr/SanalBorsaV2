@@ -9,11 +9,14 @@ namespace SanalBorsa.Application.Common;
 public sealed class MarketDataCacheVersion
 {
     private int _bist;
+    private int _crypto;
     private int _us;
 
     public int Bist => _bist;
+    public int Crypto => _crypto;
     public int Us => _us;
 
     public void BumpBist() => Interlocked.Increment(ref _bist);
+    public void BumpCrypto() => Interlocked.Increment(ref _crypto);
     public void BumpUs() => Interlocked.Increment(ref _us);
 }

@@ -55,6 +55,7 @@ public sealed class TopGainersJob
 
                 if (market == MarketType.UsStocks) _cacheVersion.BumpUs();
                 else if (market == MarketType.Bist) _cacheVersion.BumpBist();
+                else if (market == MarketType.Crypto) _cacheVersion.BumpCrypto();
             }
         }
         catch (Exception ex)
