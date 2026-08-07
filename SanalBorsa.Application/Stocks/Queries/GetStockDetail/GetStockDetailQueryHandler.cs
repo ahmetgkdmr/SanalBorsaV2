@@ -1,5 +1,6 @@
 using AutoMapper;
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Interfaces;
@@ -29,6 +30,9 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
             ct: cancellationToken);
 
         var actions = await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
+
+        var usdTry = await _uow.Stocks.GetBySymbolAsync("USDTRY", cancellationToken);
+        var earliestDataDate = EarliestDateClamp.Apply(stock.EarliestDataDate, usdTry?.EarliestDataDate);
 
         var priceDtos = recentPrices
             .Select(_mapper.Map<PriceHistoryDto>)
@@ -61,7 +65,7 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
             stock.Currency,
             stock.Exchange,
             stock.IsActive,
-            stock.EarliestDataDate,
+            earliestDataDate,
             stock.LatestDataDate,
             stock.NeedsHistoryRefresh,
             stock.CreatedAt,

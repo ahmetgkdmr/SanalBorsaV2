@@ -112,10 +112,16 @@ public class GetAllStocksQueryHandler : IRequestHandler<GetAllStocksQuery, Paged
             cancellationToken);
         var intradaySparklines = await _uow.IntradayBars.GetSparklinesByStockIdsAsync(pageIds, cancellationToken);
 
+        var usdTry = await _uow.Stocks.GetBySymbolAsync("USDTRY", cancellationToken);
+        var parityFloor = usdTry?.EarliestDataDate;
+
         var items = pageItems
             .Select(stock =>
             {
-                var dto = _mapper.Map<StockDto>(stock);
+                var dto = _mapper.Map<StockDto>(stock) with
+                {
+                    EarliestDataDate = EarliestDateClamp.Apply(stock.EarliestDataDate, parityFloor),
+                };
                 var bistIndices = BistIndexCompositionSeed.GetIndicesForSymbol(stock.Symbol);
                 championBySymbol.TryGetValue(stock.Symbol, out var crown);
 

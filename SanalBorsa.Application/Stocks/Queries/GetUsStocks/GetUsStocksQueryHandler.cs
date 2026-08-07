@@ -60,10 +60,17 @@ public class GetUsStocksQueryHandler : IRequestHandler<GetUsStocksQuery, PagedRe
             cancellationToken);
         var intradaySparklines = await _uow.IntradayBars.GetSparklinesByStockIdsAsync(stockIds, cancellationToken);
 
+        var usdTry = await _uow.Stocks.GetBySymbolAsync("USDTRY", cancellationToken);
+        var parityFloor = usdTry?.EarliestDataDate;
+
         var items = ordered
             .Select(stock =>
             {
-                var dto = _mapper.Map<StockDto>(stock) with { MarketType = "us" };
+                var dto = _mapper.Map<StockDto>(stock) with
+                {
+                    MarketType = "us",
+                    EarliestDataDate = EarliestDateClamp.Apply(stock.EarliestDataDate, parityFloor),
+                };
                 if (!snapshots.TryGetValue(stock.Id, out var snap))
                     return dto;
 
