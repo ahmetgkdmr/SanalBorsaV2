@@ -1,14 +1,15 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
-using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncBistDailyPrices;
 using SanalBorsa.Application.Stocks.Commands.SyncStocks;
 
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Her gün 18:30 Türkiye — metadata + BIST ham Close (TV) + AdjustedClose (TV dividends).
+/// Her gün 18:30 Türkiye — metadata + BIST ham Close (TV).
+/// AdjustedClose burada YENİDEN hesaplanmaz — bu artık <see cref="CorporateActionSyncJob"/> (18:35)
+/// tarafından, sadece o gün kurumsal olay eklenen hisseler için tetikleniyor (bkz. o dosyadaki not).
 /// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
 [DisableConcurrentExecution(timeoutInSeconds: 600)]
@@ -39,13 +40,6 @@ public sealed class TradingViewPriceSyncJob
                 raw.Attempted, raw.Synced, raw.BarsUpserted, raw.Failed, raw.MaxLatestDate);
             if (raw.Error is not null)
                 throw new InvalidOperationException(raw.Error);
-
-            var adj = await _mediator.Send(new SyncBistAdjustedClosesCommand(), ct);
-            _logger.LogInformation(
-                "BIST AdjustedClose sync — attempted={A} synced={S} rows={R} failed={F}",
-                adj.Attempted, adj.Synced, adj.RowsUpdated, adj.Failed);
-            if (adj.Error is not null)
-                throw new InvalidOperationException(adj.Error);
         }
         catch (Exception ex)
         {

@@ -7,8 +7,12 @@ using SanalBorsa.Domain.Entities;
 namespace SanalBorsa.Infrastructure.Jobs;
 
 /// <summary>
-/// Her gece 23:00 Türkiye saati — BIST ve Crypto için 5 dönem şampiyonunu
-/// (1h / 1a / 1y / 5y / 10y) DB'deki son kapanışa göre yeniden hesaplar.
+/// BIST/Crypto için her gece 23:00 Türkiye saati, ABD hisseleri için NYSE kapanışından sonra
+/// 16:30 ET (ayrı bir cron kaydıyla, bkz. <see cref="RecurringJobRegistrar"/>) — verilen piyasalar
+/// için 5 dönem şampiyonunu (1h / 1a / 1y / 5y / 10y) DB'deki son kapanışa göre yeniden hesaplar.
+/// ABD'nin ayrı saatte olmasının nedeni: 23:00 TR, ABD'nin kendi günlük fiyat senkronundan
+/// (16:10–16:20 ET ≈ 23:10–00:20 TR, mevsime göre değişir) önce gelebiliyor — aynı job'a
+/// eklenirse bazı aylarda bir önceki günün verisiyle hesaplanmış olurdu.
 /// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
 [DisableConcurrentExecution(timeoutInSeconds: 600)]
@@ -24,13 +28,13 @@ public sealed class TopGainersJob
         _logger = logger;
     }
 
-    public async Task RunAsync(CancellationToken ct = default)
+    public async Task RunAsync(IReadOnlyList<MarketType> markets, CancellationToken ct = default)
     {
-        _logger.LogInformation("TopGainersJob started at {Time}", DateTimeOffset.UtcNow);
+        _logger.LogInformation("TopGainersJob started at {Time} for {Markets}", DateTimeOffset.UtcNow, string.Join(",", markets));
 
         try
         {
-            foreach (var market in new[] { MarketType.Bist, MarketType.Crypto })
+            foreach (var market in markets)
             {
                 var result = await _mediator.Send(new ComputeTopGainersCommand(market), ct);
                 _logger.LogInformation(

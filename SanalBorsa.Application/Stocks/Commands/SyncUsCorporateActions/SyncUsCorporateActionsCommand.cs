@@ -13,4 +13,5 @@ public record SyncUsCorporateActionsResult(
     int StocksProcessed,
     int StocksSkipped,
     int ActionsAdded,
-    int Failed);
+    int Failed,
+    IReadOnlyList<string> AffectedSymbols);

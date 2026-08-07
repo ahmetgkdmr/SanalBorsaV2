@@ -11,4 +11,7 @@ public enum TimeMachineCategory
 
     /// <summary>USD/TRY, EUR/TRY, gram altın — her gün sabit 3 satır.</summary>
     Parity = 3,
+
+    /// <summary>ABD hisseleri — günlük en çok kazandıran 5 hisse.</summary>
+    UsStocks = 4,
 }

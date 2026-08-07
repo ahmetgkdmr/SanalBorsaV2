@@ -10,7 +10,7 @@ namespace SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
 
 /// <summary>
 /// "O gün alsaydın bugün" tablosu.
-/// BIST: <c>AdjustedClose</c> (TV dividends) oranı; ham Close yalnızca görüntü.
+/// BIST / ABD: <c>AdjustedClose</c> (TV dividends/split) oranı; ham Close yalnızca görüntü.
 /// Kripto / parite: ham Close oranı.
 /// </summary>
 public class ComputeTimeMachineLeadersCommandHandler
@@ -46,7 +46,7 @@ public class ComputeTimeMachineLeadersCommandHandler
         var total = Stopwatch.StartNew();
         var targets = request.Category is { } single
             ? new[] { single }
-            : [TimeMachineCategory.Bist, TimeMachineCategory.Crypto, TimeMachineCategory.Parity];
+            : [TimeMachineCategory.Bist, TimeMachineCategory.Crypto, TimeMachineCategory.UsStocks, TimeMachineCategory.Parity];
 
         var results = new List<TimeMachineCategoryResult>(targets.Length);
         foreach (var category in targets)
@@ -64,8 +64,13 @@ public class ComputeTimeMachineLeadersCommandHandler
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var market = category == TimeMachineCategory.Crypto ? MarketType.Crypto : MarketType.Bist;
-        var useAdjusted = category == TimeMachineCategory.Bist;
+        var market = category switch
+        {
+            TimeMachineCategory.Crypto => MarketType.Crypto,
+            TimeMachineCategory.UsStocks => MarketType.UsStocks,
+            _ => MarketType.Bist,
+        };
+        var useAdjusted = category is TimeMachineCategory.Bist or TimeMachineCategory.UsStocks;
 
         var stocks = (await _uow.Stocks.GetAllActiveAsync(ct, market))
             .Where(s => s.MarketType == market)

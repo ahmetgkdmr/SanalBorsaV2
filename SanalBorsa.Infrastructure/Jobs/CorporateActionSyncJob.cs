@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Stocks.Commands.SyncBistAdjustedCloses;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
 
 namespace SanalBorsa.Infrastructure.Jobs;
@@ -9,6 +10,12 @@ namespace SanalBorsa.Infrastructure.Jobs;
 /// Nightly 18:35 Turkey — incremental KAP check for new corporate actions
 /// (bedelsiz / bedelli+rüçhan / nakit temettü) after the latest DB date.
 /// Full historical bootstrap uses POST …/corporate-actions/sync?full=true (İş Yatırım).
+///
+/// AdjustedClose tam geçmişi ancak o hissede YENİ bir kurumsal olay eklendiğinde değişir
+/// (yeni bar'lar zaten <c>AdjustedClose = Close</c> placeholder'ıyla giriyor, bkz.
+/// SyncBistDailyPricesCommandHandler). Bu yüzden tam yenileme artık tüm hisselerde değil,
+/// sadece bu koşuda gerçekten yeni olay eklenen sembollerde tetikleniyor — 645 hisse yerine
+/// günde birkaç istek, TradingView'e gereksiz yük/rate-limit riskini önlüyor.
 /// Hangfire recurring job; kayıt: <see cref="RecurringJobRegistrar"/>.
 /// </summary>
 [DisableConcurrentExecution(timeoutInSeconds: 600)]
@@ -33,13 +40,43 @@ public sealed class CorporateActionSyncJob
             var result = await _mediator.Send(new SyncCorporateActionsCommand(FullResync: false), ct);
 
             _logger.LogInformation(
-                "CorporateActionSyncJob (KAP) completed — Processed: {Processed}, Skipped: {Skipped}, Added: {Added}, Failed: {Failed}",
-                result.StocksProcessed, result.StocksSkipped, result.ActionsAdded, result.Failed);
+                "CorporateActionSyncJob (KAP) completed — Processed: {Processed}, Skipped: {Skipped}, Added: {Added}, Failed: {Failed}, Affected: {Affected}",
+                result.StocksProcessed, result.StocksSkipped, result.ActionsAdded, result.Failed, result.AffectedSymbols.Count);
+
+            await RefreshAdjustedClosesAsync(result.AffectedSymbols, ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "CorporateActionSyncJob (KAP) failed");
             throw;
+        }
+    }
+
+    private async Task RefreshAdjustedClosesAsync(IReadOnlyList<string> symbols, CancellationToken ct)
+    {
+        if (symbols.Count == 0)
+        {
+            _logger.LogInformation("CorporateActionSyncJob — bugün yeni kurumsal olay yok, AdjustedClose yenilemesi atlandı");
+            return;
+        }
+
+        _logger.LogInformation(
+            "CorporateActionSyncJob — {Count} hissede yeni olay bulundu, AdjustedClose yenileniyor: {Symbols}",
+            symbols.Count, string.Join(", ", symbols));
+
+        foreach (var symbol in symbols)
+        {
+            try
+            {
+                var adj = await _mediator.Send(new SyncBistAdjustedClosesCommand(Symbol: symbol), ct);
+                _logger.LogInformation(
+                    "CorporateActionSyncJob — {Symbol} AdjustedClose yenilendi — rows={Rows} failed={Failed}",
+                    symbol, adj.RowsUpdated, adj.Failed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CorporateActionSyncJob — {Symbol} AdjustedClose yenileme hatası", symbol);
+            }
         }
     }
 }

@@ -59,6 +59,9 @@ public static class DependencyInjection
         // ICryptoTickerPublisher API katmanında SignalR ile override edilir; yoksa no-op.
         services.TryAddSingleton<ICryptoTickerPublisher, NullCryptoTickerPublisher>();
         services.AddHostedService<BinanceTickerStreamService>();
+        // Gerçek forex/emtia kuru (USD/TRY, EUR/TRY, gram altın) — Binance'in USDT/TRY paritesinden
+        // farklı olarak TradingView'ın interbank kaynağından, aynı ticker store/publisher üzerinden.
+        services.AddHostedService<SanalBorsa.Infrastructure.ExternalServices.TradingView.TvFxTickerStreamService>();
 
         // ── Firebase Admin SDK ────────────────────────────────────────────────
         // Initialization is deferred to IFirebaseAuthProvider.VerifyIdTokenAsync

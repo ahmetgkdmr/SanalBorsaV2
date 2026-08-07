@@ -24,9 +24,10 @@ public class GetTimeMachineLeadersQueryHandler
 
         var bist = await LoadAsync(TimeMachineCategory.Bist, date, cancellationToken);
         var crypto = await LoadAsync(TimeMachineCategory.Crypto, date, cancellationToken);
+        var usStocks = await LoadAsync(TimeMachineCategory.UsStocks, date, cancellationToken);
         var parity = await LoadAsync(TimeMachineCategory.Parity, date, cancellationToken);
 
-        var computedAt = bist.Concat(crypto).Concat(parity)
+        var computedAt = bist.Concat(crypto).Concat(usStocks).Concat(parity)
             .Select(l => (DateTime?)l.ComputedAt)
             .Max();
 
@@ -34,6 +35,7 @@ public class GetTimeMachineLeadersQueryHandler
             date.ToString("yyyy-MM-dd"),
             bist.Select(Map).ToList(),
             crypto.Select(Map).ToList(),
+            usStocks.Select(Map).ToList(),
             parity.Select(Map).ToList(),
             computedAt);
     }

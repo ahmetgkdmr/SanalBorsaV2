@@ -34,6 +34,7 @@ public class SyncUsCorporateActionsCommandHandler
         CancellationToken cancellationToken)
     {
         int processed = 0, skipped = 0, added = 0, failed = 0;
+        var affectedSymbols = new List<string>();
 
         List<Stock> stocks;
         if (!string.IsNullOrWhiteSpace(request.Symbol))
@@ -151,6 +152,7 @@ public class SyncUsCorporateActionsCommandHandler
                         _uow.CorporateActions.RemoveRange(staleDividends);
                 }
 
+                var addedForStock = 0;
                 foreach (var action in incoming)
                 {
                     action.StockId = stock.Id;
@@ -165,10 +167,14 @@ public class SyncUsCorporateActionsCommandHandler
 
                     await _uow.CorporateActions.AddAsync(action, cancellationToken);
                     added++;
+                    addedForStock++;
                 }
 
                 await _uow.SaveChangesAsync(cancellationToken);
                 _uow.ClearChanges();
+
+                if (addedForStock > 0)
+                    affectedSymbols.Add(stock.Symbol);
 
                 _logger.LogInformation(
                     "ABD kurumsal işlem sync [{Current}/{Total}] — {Symbol}: {Count} olay çekildi",
@@ -185,10 +191,10 @@ public class SyncUsCorporateActionsCommandHandler
         }
 
         _logger.LogInformation(
-            "ABD kurumsal işlem sync bitti — processed={Processed}, skipped={Skipped}, added={Added}, failed={Failed}",
-            processed, skipped, added, failed);
+            "ABD kurumsal işlem sync bitti — processed={Processed}, skipped={Skipped}, added={Added}, failed={Failed}, affected={Affected}",
+            processed, skipped, added, failed, affectedSymbols.Count);
 
-        return new SyncUsCorporateActionsResult(processed, skipped, added, failed);
+        return new SyncUsCorporateActionsResult(processed, skipped, added, failed, affectedSymbols);
     }
 
     /// <summary>

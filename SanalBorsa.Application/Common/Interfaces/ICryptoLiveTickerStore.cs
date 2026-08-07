@@ -9,6 +9,11 @@ public interface ICryptoLiveTickerStore
 
     void Upsert(CryptoTickerDto ticker);
 
+    /// <summary>Allowed-symbols filtresini atlayıp her zaman yazar — FX quote'ları (USDTRY/EURTRY/
+    /// GRAMALTIN gibi TradingView kaynaklı, Binance bootstrap'inin allowed-set'ine dahil olmayan
+    /// semboller) için. Binance'in SetAllowedSymbols çağrısı bu semboli asla silmez.</summary>
+    void UpsertAlways(CryptoTickerDto ticker);
+
     CryptoTickerDto? Get(string symbol);
 
     /// <summary>İzinli USDT spot semboller (volume azalan).</summary>

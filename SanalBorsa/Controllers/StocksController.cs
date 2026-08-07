@@ -79,6 +79,7 @@ public class StocksController : ControllerBase
         => (value ?? "bist").Trim().ToLowerInvariant() switch
         {
             "crypto" => MarketType.Crypto,
+            "us" or "usstocks" => MarketType.UsStocks,
             _ => MarketType.Bist,
         };
 
@@ -107,9 +108,7 @@ public class StocksController : ControllerBase
         [FromQuery] string? marketType = null,
         CancellationToken ct = default)
     {
-        var mt = string.Equals(marketType, "crypto", StringComparison.OrdinalIgnoreCase)
-            ? MarketType.Crypto
-            : MarketType.Bist;
+        var mt = ParseMarketType(marketType);
 
         var result = await _mediator.Send(
             new CalculateTimeMachineQuery(symbol, date, pct, mode, amount, mt),

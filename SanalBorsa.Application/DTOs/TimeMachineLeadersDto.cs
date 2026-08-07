@@ -17,11 +17,12 @@ public record TimeMachineLeaderDto(
 
 /// <summary>
 /// "O gün başka ne alsaydın?" — seçilen tarih için önceden hesaplanmış
-/// BIST top-5, kripto top-5 ve üç TL paritesi.
+/// BIST top-5, kripto top-5, ABD top-5 ve üç TL paritesi.
 /// </summary>
 public record TimeMachineLeadersDto(
     string RequestedDate,
     IReadOnlyList<TimeMachineLeaderDto> Bist,
     IReadOnlyList<TimeMachineLeaderDto> Crypto,
+    IReadOnlyList<TimeMachineLeaderDto> UsStocks,
     IReadOnlyList<TimeMachineLeaderDto> Parity,
     DateTime? ComputedAt);

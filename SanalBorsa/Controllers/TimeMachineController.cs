@@ -75,6 +75,7 @@ public class TimeMachineController : ControllerBase
         {
             "bist" => TimeMachineCategory.Bist,
             "crypto" => TimeMachineCategory.Crypto,
+            "us" or "usstocks" => TimeMachineCategory.UsStocks,
             "parity" => TimeMachineCategory.Parity,
             _ => null,
         };

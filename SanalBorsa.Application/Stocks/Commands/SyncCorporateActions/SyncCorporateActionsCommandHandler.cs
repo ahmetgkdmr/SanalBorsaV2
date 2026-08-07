@@ -35,6 +35,7 @@ public class SyncCorporateActionsCommandHandler
         CancellationToken cancellationToken)
     {
         int processed = 0, skipped = 0, added = 0, removed = 0, failed = 0;
+        var affectedSymbols = new List<string>();
 
         var stocks = (await _uow.Stocks.GetAllActiveAsync(cancellationToken))
             .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange))
@@ -114,6 +115,7 @@ public class SyncCorporateActionsCommandHandler
                     }
                 }
 
+                var addedForStock = 0;
                 foreach (var action in incoming)
                 {
                     action.StockId = stock.Id;
@@ -128,10 +130,14 @@ public class SyncCorporateActionsCommandHandler
 
                     await _uow.CorporateActions.AddAsync(action, cancellationToken);
                     added++;
+                    addedForStock++;
                 }
 
                 await _uow.SaveChangesAsync(cancellationToken);
                 _uow.ClearChanges();
+
+                if (addedForStock > 0)
+                    affectedSymbols.Add(stock.Symbol);
 
                 if (processed % 25 == 0 || processed == stocks.Count)
                 {
@@ -151,10 +157,10 @@ public class SyncCorporateActionsCommandHandler
         }
 
         _logger.LogInformation(
-            "Corporate-action sync finished — processed={Processed}, skipped={Skipped}, added={Added}, removed={Removed}, failed={Failed}, source={Source}",
-            processed, skipped, added, removed, failed, useKap ? "KAP" : "IsYatirim");
+            "Corporate-action sync finished — processed={Processed}, skipped={Skipped}, added={Added}, removed={Removed}, failed={Failed}, source={Source}, affected={Affected}",
+            processed, skipped, added, removed, failed, useKap ? "KAP" : "IsYatirim", affectedSymbols.Count);
 
-        return new SyncCorporateActionsResult(processed, skipped, added, removed, failed);
+        return new SyncCorporateActionsResult(processed, skipped, added, removed, failed, affectedSymbols);
     }
 
     private static List<CorporateAction> Deduplicate(IReadOnlyList<CorporateAction> actions)
