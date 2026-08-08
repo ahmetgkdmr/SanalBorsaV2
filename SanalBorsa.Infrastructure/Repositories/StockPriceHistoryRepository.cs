@@ -246,13 +246,13 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         return await q.MaxAsync(ct);
     }
 
-    public async Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close)>> GetClosesOnOrBeforeAsync(
+    public async Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close, decimal AdjustedClose)>> GetClosesOnOrBeforeAsync(
         IReadOnlyList<int> stockIds,
         DateTime onOrBefore,
         CancellationToken ct = default)
     {
         if (stockIds.Count == 0)
-            return new Dictionary<int, (DateTime, decimal)>();
+            return new Dictionary<int, (DateTime, decimal, decimal)>();
 
         var cutoff = onOrBefore.Date;
         var ids = stockIds.Distinct().ToList();
@@ -266,7 +266,7 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
             .ToListAsync(ct);
 
         if (dateRows.Count == 0)
-            return new Dictionary<int, (DateTime, decimal)>();
+            return new Dictionary<int, (DateTime, decimal, decimal)>();
 
         var keys = dateRows.Select(r => (r.StockId, r.Date)).ToHashSet();
         var stockIdSet = dateRows.Select(r => r.StockId).ToHashSet();
@@ -275,14 +275,14 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         var prices = await DbSet
             .AsNoTracking()
             .Where(p => stockIdSet.Contains(p.StockId) && p.Date >= minDate && p.Date <= cutoff)
-            .Select(p => new { p.StockId, p.Date, p.Close })
+            .Select(p => new { p.StockId, p.Date, p.Close, p.AdjustedClose })
             .ToListAsync(ct);
 
-        var result = new Dictionary<int, (DateTime, decimal)>();
+        var result = new Dictionary<int, (DateTime, decimal, decimal)>();
         foreach (var p in prices)
         {
             if (!keys.Contains((p.StockId, p.Date))) continue;
-            result[p.StockId] = (p.Date, p.Close);
+            result[p.StockId] = (p.Date, p.Close, p.AdjustedClose);
         }
 
         return result;

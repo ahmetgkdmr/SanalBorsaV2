@@ -47,9 +47,9 @@ public interface IStockPriceHistoryRepository : IRepository<StockPriceHistory>
         CancellationToken ct = default);
 
     /// <summary>
-    /// For each stock: close on the latest session on or before <paramref name="onOrBefore"/>.
+    /// For each stock: close (+ AdjustedClose) on the latest session on or before <paramref name="onOrBefore"/>.
     /// </summary>
-    Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close)>> GetClosesOnOrBeforeAsync(
+    Task<IReadOnlyDictionary<int, (DateTime Date, decimal Close, decimal AdjustedClose)>> GetClosesOnOrBeforeAsync(
         IReadOnlyList<int> stockIds,
         DateTime onOrBefore,
         CancellationToken ct = default);
