@@ -29,6 +29,32 @@ public class TimeMachineLeaderRepository : ITimeMachineLeaderRepository
     {
         var cutoff = onOrBefore.Date;
 
+        // Rank > 0: sadece kazananlar — kaybedenler (negatif Rank) "günün zenginlik testi"
+        // raporuna özel, bu sorguyu (mevcut "Aynı gün ne alsaydın" listesi) etkilemesin.
+        var effectiveDate = await _set
+            .AsNoTracking()
+            .Where(l => l.Category == category && l.Rank > 0 && l.StartDate <= cutoff)
+            .MaxAsync(l => (DateTime?)l.StartDate, ct);
+
+        if (effectiveDate is null)
+            return [];
+
+        return await _set
+            .AsNoTracking()
+            .Where(l => l.Category == category && l.Rank > 0 && l.StartDate == effectiveDate.Value)
+            .OrderBy(l => l.Rank)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TimeMachineLeader>> GetTopAndBottomForDateAsync(
+        TimeMachineCategory category,
+        DateTime onOrBefore,
+        int topCount,
+        int bottomCount,
+        CancellationToken ct = default)
+    {
+        var cutoff = onOrBefore.Date;
+
         var effectiveDate = await _set
             .AsNoTracking()
             .Where(l => l.Category == category && l.StartDate <= cutoff)
@@ -37,11 +63,14 @@ public class TimeMachineLeaderRepository : ITimeMachineLeaderRepository
         if (effectiveDate is null)
             return [];
 
-        return await _set
+        var all = await _set
             .AsNoTracking()
             .Where(l => l.Category == category && l.StartDate == effectiveDate.Value)
-            .OrderBy(l => l.Rank)
             .ToListAsync(ct);
+
+        var gainers = all.Where(l => l.Rank > 0).OrderBy(l => l.Rank).Take(topCount);
+        var losers = all.Where(l => l.Rank < 0).OrderByDescending(l => l.Rank).Take(bottomCount);
+        return gainers.Concat(losers).ToList();
     }
 
     public async Task<IReadOnlyList<TimeMachineLeaderStats>> GetStatsAsync(CancellationToken ct = default)

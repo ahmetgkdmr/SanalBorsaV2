@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
@@ -15,15 +16,18 @@ public class SyncBistAdjustedClosesCommandHandler
     private readonly IUnitOfWork _uow;
     private readonly IBistRawPriceService _prices;
     private readonly ILogger<SyncBistAdjustedClosesCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public SyncBistAdjustedClosesCommandHandler(
         IUnitOfWork uow,
         IBistRawPriceService prices,
-        ILogger<SyncBistAdjustedClosesCommandHandler> logger)
+        ILogger<SyncBistAdjustedClosesCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _prices = prices;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<SyncBistAdjustedClosesResult> Handle(
@@ -115,6 +119,8 @@ public class SyncBistAdjustedClosesCommandHandler
         _logger.LogInformation(
             "BIST AdjustedClose sync done — attempted={A} synced={S} rows={R} failed={F}",
             stocks.Count, synced, rowsUpdated, failed);
+
+        if (rowsUpdated > 0) _cacheVersion.BumpBist();
 
         return new SyncBistAdjustedClosesResult(stocks.Count, synced, rowsUpdated, failed, null);
     }

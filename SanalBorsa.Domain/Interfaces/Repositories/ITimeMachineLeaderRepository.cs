@@ -14,6 +14,17 @@ public interface ITimeMachineLeaderRepository
         DateTime onOrBefore,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Aynı gün için hem kazananları (Rank 1..topCount) hem kaybedenleri (Rank -1..-bottomCount)
+    /// tek seferde döndürür — "günün zenginlik testi" raporu için.
+    /// </summary>
+    Task<IReadOnlyList<TimeMachineLeader>> GetTopAndBottomForDateAsync(
+        TimeMachineCategory category,
+        DateTime onOrBefore,
+        int topCount,
+        int bottomCount,
+        CancellationToken ct = default);
+
     /// <summary>Kategori satırlarını komple değiştirir (silip toplu yazar).</summary>
     Task ReplaceCategoryAsync(
         TimeMachineCategory category,

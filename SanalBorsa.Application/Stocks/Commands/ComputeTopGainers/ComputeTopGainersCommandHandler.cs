@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
@@ -29,13 +30,16 @@ public class ComputeTopGainersCommandHandler
 
     private readonly IUnitOfWork _uow;
     private readonly ILogger<ComputeTopGainersCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public ComputeTopGainersCommandHandler(
         IUnitOfWork uow,
-        ILogger<ComputeTopGainersCommandHandler> logger)
+        ILogger<ComputeTopGainersCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<ComputeTopGainersResult> Handle(
@@ -54,6 +58,7 @@ public class ComputeTopGainersCommandHandler
         {
             await _uow.TopGainers.ReplaceForMarketAsync(market, [], cancellationToken);
             await _uow.SaveChangesAsync(cancellationToken);
+            BumpCacheVersion(market);
             return new ComputeTopGainersResult(market, DateTime.UtcNow.Date, null, null, null, null, null);
         }
 
@@ -142,8 +147,21 @@ public class ComputeTopGainersCommandHandler
 
         await _uow.TopGainers.ReplaceForMarketAsync(market, rows, cancellationToken);
         await _uow.SaveChangesAsync(cancellationToken);
+        BumpCacheVersion(market);
 
         return new ComputeTopGainersResult(market, asOf.Date, week, month, year, fiveYear, tenYear);
+    }
+
+    /// <summary>
+    /// Cache invalidation burada (job wrapper'da değil, handler'ın kendisinde) yapılır ki hangi
+    /// yoldan tetiklenirse tetiklensin (gece job'u, admin "yeniden hesapla" endpoint'i, ileride
+    /// eklenecek başka bir çağıran) GetTopGainersQuery her zaman taze veriyi görsün.
+    /// </summary>
+    private void BumpCacheVersion(MarketType market)
+    {
+        if (market == MarketType.UsStocks) _cacheVersion.BumpUs();
+        else if (market == MarketType.Bist) _cacheVersion.BumpBist();
+        else if (market == MarketType.Crypto) _cacheVersion.BumpCrypto();
     }
 
     private static bool IsCryptoStable(Stock stock)

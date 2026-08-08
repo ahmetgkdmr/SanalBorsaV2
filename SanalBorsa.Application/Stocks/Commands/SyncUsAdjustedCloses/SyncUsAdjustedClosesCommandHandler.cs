@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Services;
 using SanalBorsa.Domain.Entities;
@@ -15,15 +16,18 @@ public class SyncUsAdjustedClosesCommandHandler
     private readonly IUnitOfWork _uow;
     private readonly ITradingViewHistoryService _tv;
     private readonly ILogger<SyncUsAdjustedClosesCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public SyncUsAdjustedClosesCommandHandler(
         IUnitOfWork uow,
         ITradingViewHistoryService tv,
-        ILogger<SyncUsAdjustedClosesCommandHandler> logger)
+        ILogger<SyncUsAdjustedClosesCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _tv = tv;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<SyncUsAdjustedClosesResult> Handle(
@@ -107,6 +111,8 @@ public class SyncUsAdjustedClosesCommandHandler
         _logger.LogInformation(
             "ABD AdjustedClose sync done — attempted={A} synced={S} rows={R} failed={F}",
             stocks.Count, synced, rowsUpdated, failed);
+
+        if (rowsUpdated > 0) _cacheVersion.BumpUs();
 
         return new SyncUsAdjustedClosesResult(stocks.Count, synced, rowsUpdated, failed, null);
     }

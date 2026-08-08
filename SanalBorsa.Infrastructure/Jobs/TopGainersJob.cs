@@ -1,7 +1,6 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
-using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
 using SanalBorsa.Domain.Entities;
 
@@ -22,16 +21,11 @@ public sealed class TopGainersJob
 {
     private readonly IMediator _mediator;
     private readonly ILogger<TopGainersJob> _logger;
-    private readonly MarketDataCacheVersion _cacheVersion;
 
-    public TopGainersJob(
-        IMediator mediator,
-        ILogger<TopGainersJob> logger,
-        MarketDataCacheVersion cacheVersion)
+    public TopGainersJob(IMediator mediator, ILogger<TopGainersJob> logger)
     {
         _mediator = mediator;
         _logger = logger;
-        _cacheVersion = cacheVersion;
     }
 
     public async Task RunAsync(IReadOnlyList<MarketType> markets, CancellationToken ct = default)
@@ -52,10 +46,6 @@ public sealed class TopGainersJob
                     result.YearChampion,
                     result.FiveYearChampion,
                     result.TenYearChampion);
-
-                if (market == MarketType.UsStocks) _cacheVersion.BumpUs();
-                else if (market == MarketType.Bist) _cacheVersion.BumpBist();
-                else if (market == MarketType.Crypto) _cacheVersion.BumpCrypto();
             }
         }
         catch (Exception ex)

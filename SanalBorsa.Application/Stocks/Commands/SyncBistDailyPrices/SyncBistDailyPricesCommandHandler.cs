@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.Common.Services;
@@ -20,17 +21,20 @@ public class SyncBistDailyPricesCommandHandler
     private readonly IBistRawPriceService _prices;
     private readonly PriceAnomalyGuard _anomalyGuard;
     private readonly ILogger<SyncBistDailyPricesCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public SyncBistDailyPricesCommandHandler(
         IUnitOfWork uow,
         IBistRawPriceService prices,
         PriceAnomalyGuard anomalyGuard,
-        ILogger<SyncBistDailyPricesCommandHandler> logger)
+        ILogger<SyncBistDailyPricesCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _prices = prices;
         _anomalyGuard = anomalyGuard;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<SyncBistDailyPricesResult> Handle(
@@ -163,6 +167,8 @@ public class SyncBistDailyPricesCommandHandler
         _logger.LogInformation(
             "BIST ham sync done — attempted={Attempted} synced={Synced} bars={Bars} failed={Failed} maxLatest={Max:yyyy-MM-dd}",
             stocks.Count, synced, barsTotal, failed, maxLatest);
+
+        if (barsTotal > 0) _cacheVersion.BumpBist();
 
         return new SyncBistDailyPricesResult(stocks.Count, synced, barsTotal, failed, maxLatest, null);
     }

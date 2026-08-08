@@ -17,6 +17,8 @@ public class ComputeTimeMachineLeadersCommandHandler
     : IRequestHandler<ComputeTimeMachineLeadersCommand, ComputeTimeMachineLeadersResult>
 {
     private const int TopN = 5;
+    /// <summary>"Günün en çok kaybettirenleri" — negatif Rank (-1..-LossTopN) ile aynı tabloda saklanır.</summary>
+    private const int LossTopN = 3;
     // 3 yıl × ~650 hisse × AdjustedClose sonrası tablo şişince SQL 30 sn timeout yiyordu
     private const int ChunkYears = 1;
     private static readonly DateTime HistoryFloor = new(1985, 1, 1);
@@ -137,8 +139,20 @@ public class ComputeTimeMachineLeadersCommandHandler
         if (scanFrom < HistoryFloor)
             scanFrom = HistoryFloor;
 
+        // ABD/Kripto satırları TL'ye çevrilirken USD/TRY paritesine ihtiyaç duyar (bkz. frontend
+        // altAdjustedReturnPct). Parite verisi kaynaklarımızda ~1989-11-07'den öncesine gitmiyor —
+        // bu tarihten önceki günler için "aynı gün ne alsaydın" satırı üretmenin bir anlamı yok,
+        // TL karşılığı zaten hesaplanamıyor. BIST zaten native TL olduğu için bu kısıt uygulanmaz.
+        if (category is TimeMachineCategory.UsStocks or TimeMachineCategory.Crypto)
+        {
+            var usdTry = await _uow.Stocks.GetBySymbolAsync("USDTRY", ct);
+            if (usdTry?.EarliestDataDate is { } parityFloor && scanFrom < parityFloor.Date)
+                scanFrom = parityFloor.Date;
+        }
+
         var rows = new List<TimeMachineLeader>();
         var buffer = new TopBuffer(TopN);
+        var lossBuffer = new TopBuffer(LossTopN, worst: true);
         var computedAt = DateTime.UtcNow;
         var days = 0;
         DateTime? earliestStart = null;
@@ -155,6 +169,7 @@ public class ComputeTimeMachineLeadersCommandHandler
             {
                 var date = closes[i].Date.Date;
                 buffer.Reset();
+                lossBuffer.Reset();
 
                 while (i < closes.Count && closes[i].Date.Date == date)
                 {
@@ -169,12 +184,14 @@ public class ComputeTimeMachineLeadersCommandHandler
                     if (startRet <= 0m || row.Close <= 0m)
                         continue;
 
-                    buffer.Offer(new Candidate(
+                    var candidate = new Candidate(
                         row.StockId,
                         byId[row.StockId].Symbol,
                         row.Close,
                         endRawPx,
-                        (endRetPx - startRet) / startRet * 100m));
+                        (endRetPx - startRet) / startRet * 100m);
+                    buffer.Offer(candidate);
+                    lossBuffer.Offer(candidate);
                 }
 
                 if (date >= endDate || buffer.Count == 0)
@@ -200,6 +217,28 @@ public class ComputeTimeMachineLeadersCommandHandler
                         // 4 ondalığa yuvarlama önceden büyük çarpanlarda (ör. 40x+) TL bazında
                         // birkaç liralık farka büyüyordu — tek-hisse simülasyonuyla (ham AdjustedClose
                         // oranı, yuvarlamasız) birebir eşleşmesi için burada da tam hassasiyet korunuyor.
+                        ReturnPct = c.ReturnPct,
+                        EndDate = endDate,
+                        ComputedAt = computedAt,
+                    });
+                }
+
+                // Kaybedenler negatif Rank ile aynı tabloda saklanır (-1 = en çok kaybettiren).
+                // Mevcut "Aynı gün ne alsaydın" sorgusu Rank > 0 filtreliyor, bu satırları hiç görmez.
+                for (var rank = 0; rank < lossBuffer.Count; rank++)
+                {
+                    var c = lossBuffer[rank];
+                    var stock = byId[c.StockId];
+                    rows.Add(new TimeMachineLeader
+                    {
+                        Category = category,
+                        StartDate = date,
+                        Rank = -(rank + 1),
+                        StockId = c.StockId,
+                        Symbol = stock.Symbol,
+                        Name = stock.Name,
+                        StartPrice = c.StartPrice,
+                        EndPrice = c.EndPrice,
                         ReturnPct = c.ReturnPct,
                         EndDate = endDate,
                         ComputedAt = computedAt,
@@ -350,11 +389,21 @@ public class ComputeTimeMachineLeadersCommandHandler
         decimal EndPrice,
         decimal ReturnPct);
 
+    /// <summary>
+    /// <paramref name="worst"/> false ise en yüksek getiriyi (kazananlar), true ise en düşük
+    /// getiriyi (kaybedenler — "günün zenginlik testi" özelliği) tutar. Aynı gün-tarama
+    /// döngüsünde ikinci bir buffer olarak paralel çalışır, ekstra veri taraması gerektirmez.
+    /// </summary>
     private sealed class TopBuffer
     {
         private readonly Candidate[] _items;
+        private readonly bool _worst;
 
-        public TopBuffer(int capacity) => _items = new Candidate[capacity];
+        public TopBuffer(int capacity, bool worst = false)
+        {
+            _items = new Candidate[capacity];
+            _worst = worst;
+        }
 
         public int Count { get; private set; }
 
@@ -378,8 +427,11 @@ public class ComputeTimeMachineLeadersCommandHandler
             if (Count < _items.Length) Count++;
         }
 
-        private static bool IsBetter(in Candidate a, in Candidate b)
-            => a.ReturnPct > b.ReturnPct
-               || (a.ReturnPct == b.ReturnPct && string.CompareOrdinal(a.Symbol, b.Symbol) < 0);
+        private bool IsBetter(in Candidate a, in Candidate b)
+            => _worst
+                ? a.ReturnPct < b.ReturnPct
+                    || (a.ReturnPct == b.ReturnPct && string.CompareOrdinal(a.Symbol, b.Symbol) < 0)
+                : a.ReturnPct > b.ReturnPct
+                    || (a.ReturnPct == b.ReturnPct && string.CompareOrdinal(a.Symbol, b.Symbol) < 0);
     }
 }

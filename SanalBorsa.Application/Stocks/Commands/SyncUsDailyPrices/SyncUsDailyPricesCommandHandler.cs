@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Services;
 using SanalBorsa.Domain.Entities;
@@ -26,19 +27,22 @@ public class SyncUsDailyPricesCommandHandler
     private readonly IYahooFinanceService _yahoo;
     private readonly PriceAnomalyGuard _anomalyGuard;
     private readonly ILogger<SyncUsDailyPricesCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public SyncUsDailyPricesCommandHandler(
         IUnitOfWork uow,
         ITradingViewHistoryService tv,
         IYahooFinanceService yahoo,
         PriceAnomalyGuard anomalyGuard,
-        ILogger<SyncUsDailyPricesCommandHandler> logger)
+        ILogger<SyncUsDailyPricesCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _tv = tv;
         _yahoo = yahoo;
         _anomalyGuard = anomalyGuard;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<SyncUsDailyPricesResult> Handle(
@@ -195,6 +199,8 @@ public class SyncUsDailyPricesCommandHandler
         _logger.LogInformation(
             "ABD hisse sync done — attempted={Attempted} synced={Synced} bars={Bars} failed={Failed} maxLatest={Max:yyyy-MM-dd}",
             stocks.Count, synced, barsTotal, failed, maxLatest);
+
+        if (barsTotal > 0) _cacheVersion.BumpUs();
 
         return new SyncUsDailyPricesResult(stocks.Count, synced, barsTotal, failed, maxLatest, null);
     }

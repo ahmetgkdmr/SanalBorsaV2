@@ -1,7 +1,6 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
-using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Stocks.Commands.RefreshIntradaySparkline;
 using SanalBorsa.Domain.Entities;
 
@@ -18,16 +17,11 @@ public sealed class IntradaySparklineSyncJob
 {
     private readonly IMediator _mediator;
     private readonly ILogger<IntradaySparklineSyncJob> _logger;
-    private readonly MarketDataCacheVersion _cacheVersion;
 
-    public IntradaySparklineSyncJob(
-        IMediator mediator,
-        ILogger<IntradaySparklineSyncJob> logger,
-        MarketDataCacheVersion cacheVersion)
+    public IntradaySparklineSyncJob(IMediator mediator, ILogger<IntradaySparklineSyncJob> logger)
     {
         _mediator = mediator;
         _logger = logger;
-        _cacheVersion = cacheVersion;
     }
 
     public async Task RunAsync(MarketType market, CancellationToken ct = default)
@@ -39,8 +33,5 @@ public sealed class IntradaySparklineSyncJob
         _logger.LogInformation(
             "IntradaySparklineSyncJob ({Market}) done — attempted={A} synced={S} failed={F} bars={B}",
             market, result.Attempted, result.Synced, result.Failed, result.BarsWritten);
-
-        if (market == MarketType.UsStocks) _cacheVersion.BumpUs();
-        else _cacheVersion.BumpBist();
     }
 }

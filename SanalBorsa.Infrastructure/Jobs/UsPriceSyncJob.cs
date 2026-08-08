@@ -1,7 +1,6 @@
 using Hangfire;
 using MediatR;
 using Microsoft.Extensions.Logging;
-using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Stocks.Commands.SyncUsDailyPrices;
 
 namespace SanalBorsa.Infrastructure.Jobs;
@@ -19,16 +18,11 @@ public sealed class UsPriceSyncJob
 {
     private readonly IMediator _mediator;
     private readonly ILogger<UsPriceSyncJob> _logger;
-    private readonly MarketDataCacheVersion _cacheVersion;
 
-    public UsPriceSyncJob(
-        IMediator mediator,
-        ILogger<UsPriceSyncJob> logger,
-        MarketDataCacheVersion cacheVersion)
+    public UsPriceSyncJob(IMediator mediator, ILogger<UsPriceSyncJob> logger)
     {
         _mediator = mediator;
         _logger = logger;
-        _cacheVersion = cacheVersion;
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -43,8 +37,6 @@ public sealed class UsPriceSyncJob
                 raw.Attempted, raw.Synced, raw.BarsUpserted, raw.Failed, raw.MaxLatestDate);
             if (raw.Error is not null)
                 throw new InvalidOperationException(raw.Error);
-
-            _cacheVersion.BumpUs();
         }
         catch (Exception ex)
         {

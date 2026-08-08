@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Services;
 using SanalBorsa.Domain.Entities;
@@ -15,15 +16,18 @@ public class RefreshIntradaySparklineCommandHandler
     private readonly IUnitOfWork _uow;
     private readonly ITradingViewHistoryService _tv;
     private readonly ILogger<RefreshIntradaySparklineCommandHandler> _logger;
+    private readonly MarketDataCacheVersion _cacheVersion;
 
     public RefreshIntradaySparklineCommandHandler(
         IUnitOfWork uow,
         ITradingViewHistoryService tv,
-        ILogger<RefreshIntradaySparklineCommandHandler> logger)
+        ILogger<RefreshIntradaySparklineCommandHandler> logger,
+        MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
         _tv = tv;
         _logger = logger;
+        _cacheVersion = cacheVersion;
     }
 
     public async Task<RefreshIntradaySparklineResult> Handle(
@@ -78,6 +82,12 @@ public class RefreshIntradaySparklineCommandHandler
         _logger.LogInformation(
             "Intraday sparkline sync ({Market}) — attempted={A} synced={S} failed={F} bars={B}",
             request.Market, stocks.Count, synced, failed, allBars.Count);
+
+        if (allBars.Count > 0)
+        {
+            if (request.Market == MarketType.UsStocks) _cacheVersion.BumpUs();
+            else if (request.Market == MarketType.Bist) _cacheVersion.BumpBist();
+        }
 
         return new RefreshIntradaySparklineResult(stocks.Count, synced, failed, allBars.Count);
     }
