@@ -380,8 +380,16 @@ public static class TimeMachineCalculator
             lines.Add($"Bu süreçte toplam {FormatMoney(dividendsReceived)} ₺ temettü verdi.");
         }
 
+        // Kapanış cümlesi, yukarıdaki bedelli/bedelsiz satırındaki GERÇEK (fiziki) lot sayısıyla
+        // (events[^1].LotsAfter) devam eder — "finalLots" (lotSeries'ten, AdjustedClose bazlı değer ÷
+        // bugünkü ham fiyat oranı) tamamen farklı bir metrik ("bu para bugün kaç lot alırdı") olduğu
+        // için önceki cümledeki sayıyla çelişiyormuş gibi görünüyordu (ör. 2.439 → 25.397 olduktan
+        // sonra "sonuç 24.409" demek, sanki lot azalmış gibi okunuyordu). currentValue (AdjustedClose
+        // bazlı, doğru) parasal getiriyi hâlâ birebir yansıtıyor; sadece hangi lot sayısının yanına
+        // yazıldığı değişti.
+        var realFinalLots = events.Count > 0 ? events[^1].LotsAfter : initialLots;
         lines.Add(
-            $"Sonuç: bugünkü karşılığı ~{FormatLots(finalLots)} lot · portföy değeri {FormatMoney(currentValue)} ₺.");
+            $"Sonuç: elindeki ~{FormatLots(realFinalLots)} lot {symbol}'in bugünkü değeri {FormatMoney(currentValue)} ₺.");
 
         return lines;
     }
@@ -429,16 +437,22 @@ public static class TimeMachineCalculator
         var end = new DateTime(latestDate.Year, latestDate.Month, 1);
         var points = new List<MonthlyPricePoint>();
 
+        // Ay başına en güncel fiyatı O(N) tek geçişte topla — eskiden her ay için tüm fiyat
+        // listesi baştan taranıyordu (O(ay × N)); 10 yıllık günlük seride (~2500 satır, ~120 ay)
+        // bu ~300 bin karşılaştırmaya çıkıyordu. `prices` zaten tarihe göre artan sıralı geldiği
+        // için tek geçişte üzerine yazarak her ay için en güncel barı doğrudan elde ediyoruz —
+        // davranış birebir aynı (OrderByDescending().FirstOrDefault() ile eşdeğer), sadece O(N).
+        var byMonth = new Dictionary<(int Year, int Month), StockPriceHistory>();
+        foreach (var p in prices)
+            byMonth[(p.Date.Year, p.Date.Month)] = p;
+
         while (cursor <= end)
         {
             var monthEnd = new DateTime(cursor.Year, cursor.Month, DateTime.DaysInMonth(cursor.Year, cursor.Month));
             if (monthEnd > latestDate)
                 monthEnd = latestDate;
 
-            var monthPrice = prices
-                .Where(p => p.Date.Year == cursor.Year && p.Date.Month == cursor.Month)
-                .OrderByDescending(p => p.Date)
-                .FirstOrDefault();
+            byMonth.TryGetValue((cursor.Year, cursor.Month), out var monthPrice);
 
             if (monthPrice is not null)
                 points.Add(new MonthlyPricePoint(

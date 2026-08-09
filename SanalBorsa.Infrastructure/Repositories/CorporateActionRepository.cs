@@ -12,6 +12,7 @@ public class CorporateActionRepository : BaseRepository<CorporateAction>, ICorpo
 
     public async Task<IReadOnlyList<CorporateAction>> GetByStockIdAsync(int stockId, CancellationToken ct = default)
         => await DbSet
+            .AsNoTracking()
             .Where(a => a.StockId == stockId)
             .OrderByDescending(a => a.ActionDate)
             .ToListAsync(ct);

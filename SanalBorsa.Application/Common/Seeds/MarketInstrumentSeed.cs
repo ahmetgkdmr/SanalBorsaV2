@@ -28,7 +28,9 @@ public static class MarketInstrumentSeed
         new("XKMYA",  "XKMYA.IS",  "BIST Kimya Petrol Endeksi",     "BİST KİMYA",      "INDEX", "TRY", 2),
         new("XELKT",  "XELKT.IS",  "BIST Elektrik Endeksi",         "BİST ELEKTRİK",   "INDEX", "TRY", 2),
         new("XTAST",  "XTAST.IS",  "BIST Taş Toprak Endeksi",       "BİST TAŞ TOPRAK", "INDEX", "TRY", 2),
-        new("XMANA",  "XMANA.IS",  "BIST Mali A.Ş. Endeksi",        "BİST MALİ A.Ş.", "INDEX", "TRY", 2),
+        // XMANA = BIST Metal Ana (ana metal sanayi) — "Mali A.Ş." yanlış etiketti,
+        // BİST MALİ (XUMAL) ile karışıyordu.
+        new("XMANA",  "XMANA.IS",  "BIST Metal Ana Endeksi",        "BİST METAL ANA", "INDEX", "TRY", 2),
         new("XSPOR",  "XSPOR.IS",  "BIST Spor Endeksi",             "BİST SPOR",       "INDEX", "TRY", 2),
 
         // ── Katılım & Yönetim ────────────────────────────────────────────

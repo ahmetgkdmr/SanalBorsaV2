@@ -17,7 +17,10 @@ public class StockPriceHistoryRepository : BaseRepository<StockPriceHistory>, IS
         DateTime? to = null,
         CancellationToken ct = default)
     {
-        var query = DbSet.Where(p => p.StockId == stockId);
+        // Salt okunur (sonuç asla kaydedilmiyor) — Zaman Makinesi tek-hisse hesabı bu metotla
+        // 10 yıllık günlük seri için ~2500 satır çekiyor; AsNoTracking olmadan EF Core bunların
+        // hepsini change tracker'a alıp gereksiz kimlik-haritası/snapshot maliyeti ekliyordu.
+        var query = DbSet.AsNoTracking().Where(p => p.StockId == stockId);
 
         if (from.HasValue)
             query = query.Where(p => p.Date >= from.Value.Date);
