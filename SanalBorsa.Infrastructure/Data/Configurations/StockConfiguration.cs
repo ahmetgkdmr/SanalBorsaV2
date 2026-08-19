@@ -59,6 +59,9 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
         builder.Property(s => s.NeedsHistoryRefresh)
             .HasDefaultValue(false);
 
+        builder.Property(s => s.TradingHaltReason)
+            .HasMaxLength(500);
+
         builder.Property(s => s.CreatedAt)
             .IsRequired();
 

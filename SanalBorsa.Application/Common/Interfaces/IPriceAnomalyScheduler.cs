@@ -7,5 +7,6 @@ namespace SanalBorsa.Application.Common.Interfaces;
 /// </summary>
 public interface IPriceAnomalyScheduler
 {
-    void ScheduleRecheck(string symbol, DateTime date, decimal previousClose, TimeSpan delay);
+    /// <param name="attempt">Bir sonraki denemenin sıra numarası (ilk retry için 1).</param>
+    void ScheduleRecheck(string symbol, DateTime date, decimal previousClose, TimeSpan delay, int attempt);
 }

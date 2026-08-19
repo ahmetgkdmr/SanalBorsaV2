@@ -71,4 +71,32 @@ public class CorporateActionRepository : BaseRepository<CorporateAction>, ICorpo
 
         return all;
     }
+
+    public async Task<IReadOnlyList<CorporateAction>> GetUnappliedPortfolioActionsAsync(
+        DateTime onOrBeforeDate,
+        CancellationToken ct = default)
+        => await DbSet
+            .Include(a => a.Stock)
+            .Where(a => !a.AppliedToPortfolios
+                && a.ActionDate.Date <= onOrBeforeDate.Date
+                && (a.ActionType == CorporateActionType.BonusIssue
+                    || a.ActionType == CorporateActionType.RightsIssue
+                    || a.ActionType == CorporateActionType.Dividend))
+            .OrderBy(a => a.ActionDate)
+            .ToListAsync(ct);
+
+    public async Task<bool> IsAppliedToPortfolioAsync(
+        int corporateActionId, Guid portfolioId, CancellationToken ct = default)
+        => await Context.AppliedCorporateActions.AsNoTracking().AnyAsync(
+            a => a.CorporateActionId == corporateActionId && a.PortfolioId == portfolioId, ct);
+
+    public async Task RecordAppliedAsync(
+        int corporateActionId, Guid portfolioId, string effect, CancellationToken ct = default)
+        => await Context.AppliedCorporateActions.AddAsync(new AppliedCorporateAction
+        {
+            CorporateActionId = corporateActionId,
+            PortfolioId = portfolioId,
+            Effect = effect,
+            AppliedAt = DateTime.UtcNow,
+        }, ct);
 }

@@ -59,6 +59,7 @@ public class SyncUsAdjustedClosesCommandHandler
         var rowsUpdated = 0;
         var failed = 0;
         var done = 0;
+        var suspiciousSymbols = new List<string>();
 
         foreach (var stock in stocks)
         {
@@ -86,9 +87,27 @@ public class SyncUsAdjustedClosesCommandHandler
                     continue;
                 }
 
+                // TV bazen (ROK/HUBB'da gözlemlendi — bkz. proje sohbeti) geçici olarak bozuk bir
+                // seri döndürüyor: ham fiyat büyük artmışken düzeltilmiş seri büyük düşüş gösteriyor.
+                // Böyle bir seriyi hiç yazma — kaynağa birazdan tekrar sorulduğunda genelde kendini
+                // düzeltiyor (ROK/HUBB'ta doğrulandı); çağıran (job) bunu görüp 1 saat sonra bu tek
+                // sembol için tekrar dener.
+                var existingRaw = await _uow.PriceHistories.GetByStockIdAsync(stock.Id, from, to, cancellationToken);
+                var actions = await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
+                if (!AdjustedCloseSanityCheck.IsPlausible(existingRaw, adj, actions))
+                {
+                    suspiciousSymbols.Add(stock.Symbol);
+                    _logger.LogWarning(
+                        "ABD AdjustedClose sync (deneme {Attempt}): {Symbol} taze TV verisi ham fiyatla çelişiyor — yazılmadı.",
+                        request.RetryAttempt, stock.Symbol);
+                    await SetTradingHaltAsync(stock, cancellationToken);
+                    continue;
+                }
+
                 var updated = await _uow.PriceHistories.UpdateAdjustedClosesAsync(
                     stock.Id, adj, cancellationToken);
                 _uow.ClearChanges();
+                await ClearTradingHaltAsync(stock, cancellationToken);
 
                 synced++;
                 rowsUpdated += updated;
@@ -109,11 +128,32 @@ public class SyncUsAdjustedClosesCommandHandler
         }
 
         _logger.LogInformation(
-            "ABD AdjustedClose sync done — attempted={A} synced={S} rows={R} failed={F}",
-            stocks.Count, synced, rowsUpdated, failed);
+            "ABD AdjustedClose sync done — attempted={A} synced={S} rows={R} failed={F} suspicious={Sus}",
+            stocks.Count, synced, rowsUpdated, failed, suspiciousSymbols.Count);
 
         if (rowsUpdated > 0) _cacheVersion.BumpUs();
 
-        return new SyncUsAdjustedClosesResult(stocks.Count, synced, rowsUpdated, failed, null);
+        return new SyncUsAdjustedClosesResult(
+            stocks.Count, synced, rowsUpdated, failed, null, suspiciousSymbols.Count, suspiciousSymbols);
+    }
+
+    private async Task SetTradingHaltAsync(Stock stock, CancellationToken ct)
+    {
+        if (stock.TradingHaltReason == TradingHaltReasons.PriceInconsistency)
+            return;
+
+        stock.TradingHaltReason = TradingHaltReasons.PriceInconsistency;
+        _uow.Stocks.Update(stock);
+        await _uow.SaveChangesAsync(ct);
+    }
+
+    private async Task ClearTradingHaltAsync(Stock stock, CancellationToken ct)
+    {
+        if (stock.TradingHaltReason is null)
+            return;
+
+        stock.TradingHaltReason = null;
+        _uow.Stocks.Update(stock);
+        await _uow.SaveChangesAsync(ct);
     }
 }

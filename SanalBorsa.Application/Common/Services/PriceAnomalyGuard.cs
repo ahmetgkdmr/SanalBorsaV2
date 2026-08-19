@@ -4,22 +4,26 @@ using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
 using SanalBorsa.Domain.Interfaces;
 
+// AnomalyRetryPolicy / TradingHaltReasons: aynı SanalBorsa.Application.Common altında, ama bu
+// dosya Common.Services alt namespace'inde olduğu için açık using gerekiyor.
+using SanalBorsa.Application.Common;
+
 namespace SanalBorsa.Application.Common.Services;
 
 /// <summary>
 /// Bir günde önceki kapanışa göre %20'den fazla sıçrayan/düşen bar'ları TV/Yahoo glitch ya da
-/// kötü print kabul eder: o günün değerini yazmak yerine önceki günün kapanışını (flat) yazar ve
-/// <see cref="AnomalyRecheckDelay"/> sonra kaynağı tekrar sormak üzere <see cref="IPriceAnomalyScheduler"/>
-/// ile bir job zamanlar. Tekrar kontrolde hâlâ aynı anomaliyse önceki günün değeri kalıcı kalır;
-/// farklıysa düzeltilir (bkz. Infrastructure/Jobs/PriceAnomalyRecheckJob.cs).
-/// Piyasa-bağımsız — hem BIST hem ABD günlük fiyat senkronu tarafından kullanılır.
+/// kötü print kabul eder: o günün değerini yazmak yerine önceki günün kapanışını (flat) yazar,
+/// hisseyi alım/satıma kapatır (<see cref="Stock.TradingHaltReason"/>) ve <see cref="AnomalyRetryPolicy"/>
+/// zamanlamasıyla kaynağı tekrar sormak üzere <see cref="IPriceAnomalyScheduler"/> ile bir job
+/// zamanlar. Tekrar kontrolde düzelirse alım/satım otomatik açılır; politika tükenene kadar hâlâ
+/// aynı anomaliyse önceki günün değeri ve kapalı durum kalıcı kalır (bkz.
+/// Infrastructure/Jobs/PriceAnomalyRecheckJob.cs). Piyasa-bağımsız — hem BIST hem ABD günlük fiyat
+/// senkronu tarafından kullanılır.
 /// </summary>
 public sealed class PriceAnomalyGuard
 {
     private const decimal AnomalyLowerRatio = 0.8m;
     private const decimal AnomalyUpperRatio = 1.2m;
-
-    private static readonly TimeSpan AnomalyRecheckDelay = TimeSpan.FromHours(6);
 
     private readonly IUnitOfWork _uow;
     private readonly IPriceAnomalyScheduler _anomalyScheduler;
@@ -80,8 +84,8 @@ public sealed class PriceAnomalyGuard
                 var pctChange = (bar.Close / prevClose.Value - 1m) * 100m;
                 _logger.LogWarning(
                     "Fiyat anomalisi: {Symbol} {Date:yyyy-MM-dd} close={Close} prevClose={Prev} ({Pct:0.0}%) — " +
-                    "önceki günün kapanışı yazıldı, {Hours}s sonra tekrar kontrol edilecek.",
-                    stock.Symbol, bar.Date, bar.Close, prevClose.Value, pctChange, AnomalyRecheckDelay.TotalHours);
+                    "önceki günün kapanışı yazıldı, {Minutes}dk sonra tekrar kontrol edilecek, alım/satım kapatıldı.",
+                    stock.Symbol, bar.Date, bar.Close, prevClose.Value, pctChange, AnomalyRetryPolicy.Phase1Delay.TotalMinutes);
 
                 result.Add(new StockPriceHistory
                 {
@@ -94,8 +98,9 @@ public sealed class PriceAnomalyGuard
                     Volume = 0,
                 });
 
+                await SetTradingHaltAsync(stock, ct);
                 _anomalyScheduler.ScheduleRecheck(
-                    stock.Symbol, bar.Date.Date, prevClose.Value, AnomalyRecheckDelay);
+                    stock.Symbol, bar.Date.Date, prevClose.Value, AnomalyRetryPolicy.Phase1Delay, attempt: 1);
 
                 // Yazılan satır placeholder (önceki gün) olsa da, sonraki günün karşılaştırma bazı
                 // gerçekte GÖRÜLEN kapanış olmalı — yoksa kalıcı bir seviye değişimi (ör. gerçek bir
@@ -115,5 +120,15 @@ public sealed class PriceAnomalyGuard
     {
         var ratio = close / prevClose;
         return ratio < AnomalyLowerRatio || ratio > AnomalyUpperRatio;
+    }
+
+    private async Task SetTradingHaltAsync(Stock stock, CancellationToken ct)
+    {
+        if (stock.TradingHaltReason == TradingHaltReasons.PriceInconsistency)
+            return; // zaten kapalı, tekrar yazıp SaveChanges'e gerek yok
+
+        stock.TradingHaltReason = TradingHaltReasons.PriceInconsistency;
+        _uow.Stocks.Update(stock);
+        await _uow.SaveChangesAsync(ct);
     }
 }

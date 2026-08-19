@@ -144,6 +144,14 @@ public static class DependencyInjection
         services.AddScoped<IBistRawPriceService, BistRawPriceService>();
         services.AddScoped<IPriceAnomalyScheduler, HangfirePriceAnomalyScheduler>();
         services.AddScoped<SanalBorsa.Application.Common.Services.PriceAnomalyGuard>();
+        services.AddScoped<SanalBorsa.Application.Common.Services.PriceDataAuditService>();
+        services.AddScoped<SanalBorsa.Application.Common.Services.RawPriceActionConsistencyService>();
+        services.AddScoped<SanalBorsa.Application.Common.Services.IndependentAdjustmentAuditService>();
+        services.AddScoped<SanalBorsa.Application.Common.Services.TvImpliedFactorAuditService>();
+        services.AddScoped<PriceDataAuditJob>();
+        services.AddScoped<AdjustedCloseRetryJob>();
+        services.AddScoped<IndependentAdjustmentAuditJob>();
+        services.AddScoped<TvImpliedFactorAuditJob>();
         services.AddScoped<IPortfolioFxRateProvider, SanalBorsa.Infrastructure.ExternalServices.Fx.PortfolioFxRateProvider>();
 
         services.AddHttpClient("Tcmb", client =>

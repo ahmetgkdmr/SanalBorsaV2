@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.DTOs;
@@ -27,7 +28,11 @@ public class SellCryptoCommandHandler
         _fx = fx;
     }
 
-    public async Task<BuyCrypto.CryptoTradeResultDto> Handle(
+    public Task<BuyCrypto.CryptoTradeResultDto> Handle(
+        SellCryptoCommand request, CancellationToken cancellationToken)
+        => ConcurrencySafe.RunAsync(_uow, () => ExecuteAsync(request, cancellationToken));
+
+    private async Task<BuyCrypto.CryptoTradeResultDto> ExecuteAsync(
         SellCryptoCommand request, CancellationToken cancellationToken)
     {
         if (request.Quantity <= 0)

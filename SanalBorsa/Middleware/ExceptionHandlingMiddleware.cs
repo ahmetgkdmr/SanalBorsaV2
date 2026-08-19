@@ -32,6 +32,12 @@ public class ExceptionHandlingMiddleware
             _logger.LogWarning(ex, "Resource not found");
             await WriteErrorAsync(context, HttpStatusCode.NotFound, "Not Found", ex.Message);
         }
+        catch (ConcurrencyConflictException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict (retries exhausted)");
+            await WriteErrorAsync(context, HttpStatusCode.Conflict, "Conflict",
+                "Portföyünüzde eşzamanlı bir işlem tespit edildi, lütfen tekrar deneyin.");
+        }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized");

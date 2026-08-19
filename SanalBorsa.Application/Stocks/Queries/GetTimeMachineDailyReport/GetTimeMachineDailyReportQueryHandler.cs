@@ -1,4 +1,6 @@
 using MediatR;
+using SanalBorsa.Application.Common;
+using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
@@ -29,15 +31,19 @@ public class GetTimeMachineDailyReportQueryHandler
         var crypto = await LoadAsync(TimeMachineCategory.Crypto, date, cancellationToken);
         var usStocks = await LoadAsync(TimeMachineCategory.UsStocks, date, cancellationToken);
 
+        var bistUniverse = await CountUniverseAsync(MarketType.Bist, date, cancellationToken);
+        var cryptoUniverse = await CountUniverseAsync(MarketType.Crypto, date, cancellationToken);
+        var usUniverse = await CountUniverseAsync(MarketType.UsStocks, date, cancellationToken);
+
         var computedAt = bist.Concat(crypto).Concat(usStocks)
             .Select(l => (DateTime?)l.ComputedAt)
             .Max();
 
         return new TimeMachineDailyReportDto(
             date.ToString("yyyy-MM-dd"),
-            MapMarket(bist),
-            MapMarket(crypto),
-            MapMarket(usStocks),
+            MapMarket(bist, bistUniverse),
+            MapMarket(crypto, cryptoUniverse),
+            MapMarket(usStocks, usUniverse),
             computedAt);
     }
 
@@ -47,11 +53,29 @@ public class GetTimeMachineDailyReportQueryHandler
         CancellationToken ct)
         => await _uow.TimeMachineLeaders.GetTopAndBottomForDateAsync(category, date, TopCount, BottomCount, ct);
 
-    private static TimeMachineDailyMarketReportDto MapMarket(IReadOnlyList<TimeMachineLeader> rows)
+    /// <summary>
+    /// O tarihte bu piyasada fiyat verisi olan (dolayısıyla kazanan/kaybeden yarışına girebilecek)
+    /// enstrüman sayısı — kripto gibi küçük evrenlerde "kaybettiren" listesinin aslında en-az-kazanan
+    /// listesi olabileceğini kullanıcıya göstermek için (bkz. TimeMachineDailyMarketReportDto).
+    /// Liderlik hesaplamasındaki (ComputeTimeMachineLeadersCommandHandler) evren filtresiyle aynı
+    /// kurallar: piyasa enstrümanı hariç, kripto'da stablecoin hariç, o tarihten önce veri başlamış.
+    /// </summary>
+    private async Task<int> CountUniverseAsync(MarketType market, DateTime date, CancellationToken ct)
+    {
+        var stocks = await _uow.Stocks.GetAllActiveAsync(ct, market);
+        return stocks.Count(s =>
+            s.MarketType == market &&
+            !MarketInstrumentSeed.IsMarketInstrument(s.Exchange) &&
+            (market != MarketType.Crypto || !CryptoStableAssets.IsStable(s)) &&
+            s.EarliestDataDate is { } earliest && earliest.Date <= date);
+    }
+
+    private static TimeMachineDailyMarketReportDto MapMarket(
+        IReadOnlyList<TimeMachineLeader> rows, int universeCount)
     {
         var gainers = rows.Where(l => l.Rank > 0).OrderBy(l => l.Rank).Select(Map).ToList();
         var losers = rows.Where(l => l.Rank < 0).OrderByDescending(l => l.Rank).Select(Map).ToList();
-        return new TimeMachineDailyMarketReportDto(gainers, losers);
+        return new TimeMachineDailyMarketReportDto(gainers, losers, universeCount);
     }
 
     private static TimeMachineLeaderDto Map(TimeMachineLeader leader)

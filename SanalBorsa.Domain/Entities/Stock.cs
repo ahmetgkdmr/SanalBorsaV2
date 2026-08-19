@@ -34,6 +34,15 @@ public class Stock
     /// <summary>Signals that a new corporate action arrived; full history re-fetch is needed</summary>
     public bool NeedsHistoryRefresh { get; set; }
 
+    /// <summary>
+    /// null = normal, alım/satıma açık. Dolu ise (ör. "Fiyat tutarsızlığı bulunmaktadır, geçici
+    /// süreliğine alım satıma kapalıdır.") bir fiyat tutarsızlığı doğrulanana kadar (retry zinciri
+    /// devam ederken) alım/satım engellenir — bkz. PriceAnomalyGuard, Sync*AdjustedClosesCommandHandler,
+    /// Buy/SellStock ve Buy/SellUsStock handler'ları. Bir sonraki BAŞARILI (şüphesiz) senkronda
+    /// otomatik null'a döner.
+    /// </summary>
+    public string? TradingHaltReason { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

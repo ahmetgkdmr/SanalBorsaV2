@@ -18,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<UserPortfolio>      UserPortfolios      => Set<UserPortfolio>();
     public DbSet<PortfolioHolding>   PortfolioHoldings   => Set<PortfolioHolding>();
     public DbSet<PortfolioTransaction> PortfolioTransactions => Set<PortfolioTransaction>();
+    public DbSet<AppliedCorporateAction> AppliedCorporateActions => Set<AppliedCorporateAction>();
+    public DbSet<Notification>           Notifications           => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
@@ -22,13 +23,6 @@ public class ComputeTimeMachineLeadersCommandHandler
     // 3 yıl × ~650 hisse × AdjustedClose sonrası tablo şişince SQL 30 sn timeout yiyordu
     private const int ChunkYears = 1;
     private static readonly DateTime HistoryFloor = new(1985, 1, 1);
-
-    private static readonly HashSet<string> CryptoStableBases = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "USDC", "FDUSD", "TUSD", "BUSD", "USDP", "DAI", "USD1", "USDE", "USDS", "USDG",
-        "PYUSD", "RLUSD", "XUSD", "EURI", "AEUR", "EURC", "EUR", "GBP", "JPY", "TRY", "BRL",
-        "USDT",
-    };
 
     private readonly IUnitOfWork _uow;
     private readonly ILogger<ComputeTimeMachineLeadersCommandHandler> _logger;
@@ -77,7 +71,7 @@ public class ComputeTimeMachineLeadersCommandHandler
         var stocks = (await _uow.Stocks.GetAllActiveAsync(ct, market))
             .Where(s => s.MarketType == market)
             .Where(s => !MarketInstrumentSeed.IsMarketInstrument(s.Exchange))
-            .Where(s => market != MarketType.Crypto || !IsCryptoStable(s))
+            .Where(s => market != MarketType.Crypto || !CryptoStableAssets.IsStable(s))
             .ToList();
 
         if (stocks.Count == 0)
@@ -184,12 +178,27 @@ public class ComputeTimeMachineLeadersCommandHandler
                     if (startRet <= 0m || row.Close <= 0m)
                         continue;
 
+                    var returnPct = (endRetPx - startRet) / startRet * 100m;
+
+                    // Kaynak feed'in (Yahoo/TV) AdjustedClose'u bazı hisselerde (ör. ROK, HUBB —
+                    // ne split ne spin-off kaydı var ama getiri "-%73" diyor) bozuk gelebiliyor.
+                    // Düzeltilmiş getiri ile HAM fiyat hareketi taban tabana zıt yöndeyse (biri büyük
+                    // kazanç biri büyük kayıp diyorsa) kaynağa güvenilmez — o günü hiçbir buffer'a
+                    // teklif etme; "kaybettirenler"de görünüp kullanıcıyı yanıltmasın.
+                    if (useAdjusted)
+                    {
+                        var rawReturnPct = (endRawPx - row.Close) / row.Close * 100m;
+                        if (Math.Sign(returnPct) != Math.Sign(rawReturnPct) &&
+                            Math.Abs(returnPct) > 20m && Math.Abs(rawReturnPct) > 20m)
+                            continue;
+                    }
+
                     var candidate = new Candidate(
                         row.StockId,
                         byId[row.StockId].Symbol,
                         row.Close,
                         endRawPx,
-                        (endRetPx - startRet) / startRet * 100m);
+                        returnPct);
                     buffer.Offer(candidate);
                     lossBuffer.Offer(candidate);
                 }
@@ -361,16 +370,6 @@ public class ComputeTimeMachineLeadersCommandHandler
         await _uow.TimeMachineLeaders.ReplaceCategoryAsync(category, [], ct);
         _logger.LogWarning("TimeMachineLeaders {Category} atlandı: {Error}", category, error);
         return new TimeMachineCategoryResult(category, 0, 0, null, null, sw.ElapsedMilliseconds, error);
-    }
-
-    private static bool IsCryptoStable(Stock stock)
-    {
-        var baseAsset = !string.IsNullOrWhiteSpace(stock.Name)
-            ? stock.Name.Trim().ToUpperInvariant()
-            : stock.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase)
-                ? stock.Symbol[..^4]
-                : stock.Symbol;
-        return CryptoStableBases.Contains(baseAsset);
     }
 
     private sealed record ParityTrack(

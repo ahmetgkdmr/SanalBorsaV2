@@ -10,8 +10,8 @@ public sealed class HangfirePriceAnomalyScheduler : IPriceAnomalyScheduler
 
     public HangfirePriceAnomalyScheduler(IBackgroundJobClient jobs) => _jobs = jobs;
 
-    public void ScheduleRecheck(string symbol, DateTime date, decimal previousClose, TimeSpan delay)
+    public void ScheduleRecheck(string symbol, DateTime date, decimal previousClose, TimeSpan delay, int attempt)
         => _jobs.Schedule<PriceAnomalyRecheckJob>(
-            j => j.RecheckAsync(symbol, date, previousClose, CancellationToken.None),
+            j => j.RecheckAsync(symbol, date, previousClose, attempt, CancellationToken.None),
             delay);
 }

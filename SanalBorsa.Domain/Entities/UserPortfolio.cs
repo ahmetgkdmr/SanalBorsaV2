@@ -13,6 +13,15 @@ public class UserPortfolio
 
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// SQL Server rowversion — alım/satım handler'ları Cash'i oku-kontrol et-yaz şeklinde işlediği
+    /// için (transaction/lock yok) eşzamanlı iki işlem aynı bakiyeyi görüp ikisi de geçebilirdi.
+    /// Bu token sayesinde ikinci SaveChanges "0 satır etkilendi" görüp DbUpdateConcurrencyException
+    /// fırlatıyor; handler'lar bunu <see cref="SanalBorsa.Application.Common.ConcurrencySafe"/> ile
+    /// yakalayıp portföyü yeniden okuyarak otomatik tekrar deniyor.
+    /// </summary>
+    public byte[] RowVersion { get; set; } = null!;
+
     public User User { get; set; } = null!;
 
     public ICollection<PortfolioHolding> Holdings { get; set; } = new List<PortfolioHolding>();

@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Domain.Interfaces;
 using SanalBorsa.Domain.Interfaces.Repositories;
 using SanalBorsa.Infrastructure.Repositories;
@@ -16,6 +18,7 @@ public class UnitOfWork : IUnitOfWork
     private IPortfolioRepository?          _portfolios;
     private ITopGainerRepository?          _topGainers;
     private ITimeMachineLeaderRepository?  _timeMachineLeaders;
+    private INotificationRepository?       _notifications;
 
     public UnitOfWork(AppDbContext context)
     {
@@ -30,9 +33,19 @@ public class UnitOfWork : IUnitOfWork
     public IPortfolioRepository         Portfolios         => _portfolios         ??= new PortfolioRepository(_context);
     public ITopGainerRepository         TopGainers         => _topGainers         ??= new TopGainerRepository(_context);
     public ITimeMachineLeaderRepository TimeMachineLeaders => _timeMachineLeaders ??= new TimeMachineLeaderRepository(_context);
+    public INotificationRepository      Notifications      => _notifications      ??= new NotificationRepository(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
-        => await _context.SaveChangesAsync(ct);
+    {
+        try
+        {
+            return await _context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            throw new ConcurrencyConflictException(ex);
+        }
+    }
 
     public void ClearChanges()
         => _context.ChangeTracker.Clear();

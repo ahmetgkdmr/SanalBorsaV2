@@ -31,4 +31,11 @@ public class CorporateAction
     public string? Description { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Bu olay, o hisseyi elinde tutan kullanıcı portföylerine (bedelsiz → pay artışı, temettü →
+    /// nakit, bedelli → TERP değeri kadar nakit) uygulandı mı — proje sohbeti: gece senkronu her
+    /// çalıştığında aynı olayı tekrar tekrar uygulamasın diye (idempotency).
+    /// </summary>
+    public bool AppliedToPortfolios { get; set; }
 }

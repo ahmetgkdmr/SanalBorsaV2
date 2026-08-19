@@ -110,10 +110,10 @@ public class SyncParityHistoryCommandHandler
 
             var merged = new Dictionary<DateTime, StockPriceHistory>();
             MergeInto(merged, tcmbUsd.Where(b => b.Date >= from).ToList(), prefer: true);
-            MergeInto(merged, await _tv.GetDailyBarsByTvSymbolAsync(
-                MarketInstrumentSeed.UsdTryTvSymbol, from, to, ct), prefer: false);
+            MergeInto(merged, ExcludeWeekends(await _tv.GetDailyBarsByTvSymbolAsync(
+                MarketInstrumentSeed.UsdTryTvSymbol, from, to, ct)), prefer: false);
             if (merged.Count == 0 || NeedsMoreHistory(merged, from))
-                MergeInto(merged, await SafeYahooAsync(entry.YahooSymbol, from, to, ct), prefer: false);
+                MergeInto(merged, ExcludeWeekends(await SafeYahooAsync(entry.YahooSymbol, from, to, ct)), prefer: false);
 
             return await WriteBarsAsync(stock, merged.Values.OrderBy(b => b.Date).ToList(), ct);
         }
@@ -140,8 +140,8 @@ public class SyncParityHistoryCommandHandler
 
             var merged = new Dictionary<DateTime, StockPriceHistory>();
             MergeInto(merged, tcmbEur.Where(b => b.Date >= from).ToList(), prefer: true);
-            MergeInto(merged, await _tv.GetDailyBarsByTvSymbolAsync(
-                MarketInstrumentSeed.EurTryTvSymbol, from, to, ct), prefer: false);
+            MergeInto(merged, ExcludeWeekends(await _tv.GetDailyBarsByTvSymbolAsync(
+                MarketInstrumentSeed.EurTryTvSymbol, from, to, ct)), prefer: false);
 
             var usd = await _uow.Stocks.GetBySymbolAsync("USDTRY", ct);
             if (usd is not null)
@@ -152,12 +152,12 @@ public class SyncParityHistoryCommandHandler
                 {
                     var rates = await _uow.PriceHistories.GetByStockIdAsync(
                         usd.Id, from: from.AddDays(-60), ct: ct);
-                    MergeInto(merged, MultiplyFx(eurusd, rates, decimals: 4), prefer: false);
+                    MergeInto(merged, ExcludeWeekends(MultiplyFx(eurusd, rates, decimals: 4)), prefer: false);
                 }
             }
 
             if (NeedsMoreHistory(merged, from))
-                MergeInto(merged, await SafeYahooAsync(entry.YahooSymbol, from, to, ct), prefer: false);
+                MergeInto(merged, ExcludeWeekends(await SafeYahooAsync(entry.YahooSymbol, from, to, ct)), prefer: false);
 
             return await WriteBarsAsync(stock, merged.Values.OrderBy(b => b.Date).ToList(), ct);
         }
@@ -201,7 +201,9 @@ public class SyncParityHistoryCommandHandler
             {
                 var rates = await _uow.PriceHistories.GetByStockIdAsync(
                     usd.Id, from: from.AddDays(-45), ct: ct);
-                MergeInto(merged, MultiplyFx(ounce, rates, decimals: 2, divideByGrams: true), prefer: false);
+                MergeInto(merged,
+                    ExcludeWeekends(MultiplyFx(ounce, rates, decimals: 2, divideByGrams: true)),
+                    prefer: false);
             }
 
             if (merged.Count == 0)
@@ -229,6 +231,16 @@ public class SyncParityHistoryCommandHandler
             return [];
         }
     }
+
+    /// <summary>
+    /// TCMB hafta sonu hiç yayın yapmıyor (bkz. üstteki gün döngüsü) — TV/Yahoo fallback'i o
+    /// boşluğu dolduruyordu, ama hafta sonu düşük likiditede bu kaynaklar gerçekçi olmayan
+    /// (sentetik XAUTRY gibi türetilmiş semboller özellikle) barlar üretebiliyor. BIST de hafta
+    /// sonu kapalı olduğundan bu günler için satır üretmemek — TCMB'nin kendi pratiğiyle tutarlı
+    /// ve tek günlük çöp veri riskini kaynağında kapatıyor.
+    /// </summary>
+    private static IReadOnlyList<StockPriceHistory> ExcludeWeekends(IReadOnlyList<StockPriceHistory> bars)
+        => bars.Where(b => b.Date.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday)).ToList();
 
     /// <summary>prefer=true olan kaynak mevcut günü ezer (TCMB öncelikli).</summary>
     private static void MergeInto(
@@ -291,15 +303,94 @@ public class SyncParityHistoryCommandHandler
         return bars;
     }
 
+    /// <summary>
+    /// Kaynak feed'ler (özellikle hafta sonu/düşük likidite anlarında TradingView) ara sıra tek
+    /// günlük çöp bar döndürüyor — ör. gram altın bir günde %98 "düşüp" ertesi gün eski seviyesine
+    /// dönüyor. Hem önceki hem sonraki günden anormal sapan, ama önceki-sonraki kendi arasında
+    /// normal olan tek satırlık "sandviç" barları eler. Yeni günün (henüz sonrası senkronlanmamış)
+    /// ilk kez yazıldığı anda yakalanamaz — ertesi gece bir sonraki bar gelince otomatik düzelir.
+    /// </summary>
+    private const decimal MaxDailyMove = 0.25m;
+
+    private static List<StockPriceHistory> DropSpikes(List<StockPriceHistory> bars)
+    {
+        if (bars.Count < 3)
+            return bars;
+
+        var result = new List<StockPriceHistory>(bars.Count);
+        for (var i = 0; i < bars.Count; i++)
+        {
+            if (i > 0 && i < bars.Count - 1)
+            {
+                var prev = bars[i - 1].Close;
+                var next = bars[i + 1].Close;
+                var cur = bars[i].Close;
+
+                if (prev > 0m && next > 0m
+                    && Math.Abs(cur / prev - 1m) > MaxDailyMove
+                    && Math.Abs(cur / next - 1m) > MaxDailyMove
+                    && Math.Abs(next / prev - 1m) <= MaxDailyMove)
+                {
+                    continue; // tek günlük sandviç anomali — at
+                }
+            }
+
+            result.Add(bars[i]);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// <see cref="DropSpikes"/> bir anomaliyi ancak hem önceki hem sonraki komşusu varsa yakalar —
+    /// senkronun EN YENİ günü (henüz "sonraki gün" oluşmadığı için) bu korumadan geçemez ve normalde
+    /// olduğu gibi yazılırdı. Burada o son barı tek başına önceki (DB'deki veya aynı seride bir önceki)
+    /// kapanışla kıyaslıyoruz: anormal sapıyorsa YAZMIYORUZ — DB'de bir önceki gecenin doğru kapanışı
+    /// kalır, çağıran (TimeMachineLeadersJob) bunu görüp ~1 saat sonra tek seferlik tekrar dener.
+    /// </summary>
+    private async Task<bool> TrimUnconfirmedTrailingBarAsync(
+        Stock stock, List<StockPriceHistory> ordered, CancellationToken ct)
+    {
+        if (ordered.Count == 0)
+            return false;
+
+        var trailing = ordered[^1];
+        decimal? prevClose = ordered.Count > 1 ? ordered[^2].Close : null;
+
+        if (prevClose is null)
+        {
+            var priorBars = await _uow.PriceHistories.GetByStockIdAsync(
+                stock.Id, from: trailing.Date.AddDays(-10), ct: ct);
+            prevClose = priorBars
+                .Where(p => p.Date.Date < trailing.Date.Date)
+                .OrderByDescending(p => p.Date)
+                .FirstOrDefault()?.Close;
+        }
+
+        if (prevClose is not { } p || p <= 0m || Math.Abs(trailing.Close / p - 1m) <= MaxDailyMove)
+            return false;
+
+        _logger.LogWarning(
+            "Parite {Symbol}: en yeni gün ({Date:yyyy-MM-dd}) önceki kapanıştan ({Prev}) anormal " +
+            "sapıyor ({Cur}) — henüz sonraki günle doğrulanamadığı için yazılmadı, retry planlanacak.",
+            stock.Symbol, trailing.Date, p, trailing.Close);
+        ordered.RemoveAt(ordered.Count - 1);
+        return true;
+    }
+
     private async Task<ParitySyncDetail> WriteBarsAsync(
         Stock stock,
         IReadOnlyList<StockPriceHistory> bars,
         CancellationToken ct)
     {
+        var ordered = DropSpikes(bars.OrderBy(b => b.Date).ToList());
+        var needsRetry = await TrimUnconfirmedTrailingBarAsync(stock, ordered, ct);
+        bars = ordered;
+
         if (bars.Count == 0)
         {
             return new ParitySyncDetail(
-                stock.Symbol, 0, stock.EarliestDataDate, stock.LatestDataDate, "Veri gelmedi.");
+                stock.Symbol, 0, stock.EarliestDataDate, stock.LatestDataDate, "Veri gelmedi.", needsRetry);
         }
 
         var rangeFrom = bars.Min(b => b.Date).Date;
@@ -327,7 +418,7 @@ public class SyncParityHistoryCommandHandler
             stock.Symbol, bars.Count, rangeFrom, rangeTo, stock.EarliestDataDate, stock.LatestDataDate);
 
         return new ParitySyncDetail(
-            stock.Symbol, bars.Count, stock.EarliestDataDate, stock.LatestDataDate, null);
+            stock.Symbol, bars.Count, stock.EarliestDataDate, stock.LatestDataDate, null, needsRetry);
     }
 
     private static DateTime ResolveFrom(Stock stock, DateTime floor, bool full)

@@ -36,6 +36,15 @@ public sealed class TvFxTickerStreamService : BackgroundService
 
     private readonly Dictionary<string, decimal> _lastPrice = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Tek seferlik doğrulanmamış "sıçrama" adayları — bkz. <see cref="TryAcceptPrice"/>.</summary>
+    private readonly Dictionary<string, decimal> _pendingSpike = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Bir tick'in tek başına kabul edilmesi için önceki fiyattan izin verilen azami sapma.</summary>
+    private const decimal MaxTickMove = 0.15m;
+
+    /// <summary>İkinci tick'in, sıçramayı "gerçek" saymak için ilk adaya ne kadar yakın olması gerektiği.</summary>
+    private const decimal SpikeConfirmTolerance = 0.03m;
+
     public TvFxTickerStreamService(
         ICryptoLiveTickerStore store,
         ICryptoTickerPublisher publisher,
@@ -159,6 +168,9 @@ public sealed class TvFxTickerStreamService : BackgroundService
             if (effectivePrice <= 0)
                 return;
 
+            if (!TryAcceptPrice(match.StoreSymbol, lastKnown, effectivePrice))
+                return;
+
             var storePrice = match.StoreSymbol == "GRAMALTIN" ? effectivePrice / GramsPerTroyOunce : effectivePrice;
             _lastPrice[match.StoreSymbol] = effectivePrice;
 
@@ -179,6 +191,39 @@ public sealed class TvFxTickerStreamService : BackgroundService
         {
             _logger.LogDebug(ex, "TV FX quote payload parse hatası: {Payload}", payload);
         }
+    }
+
+    /// <summary>
+    /// Tek bir kopuk/bozuk tick (ör. hafta sonu düşük likidite anında TV'nin verdiği çöp fiyat)
+    /// anlık kur olarak yayınlanmasın diye: önceki kabul edilen fiyattan <see cref="MaxTickMove"/>'den
+    /// fazla sapan bir tick hemen kabul edilmez, "aday" olarak tutulur. Bir sonraki tick de aynı yeni
+    /// seviyeyi (adaya yakın) doğrularsa gerçek bir hareket sayılıp kabul edilir — tek seferlik bir
+    /// blip ise (sıradaki tick eski seviyeye döner) sessizce atılır.
+    /// </summary>
+    private bool TryAcceptPrice(string storeSymbol, decimal lastKnown, decimal candidate)
+    {
+        if (lastKnown <= 0)
+            return true; // ilk fiyat — karşılaştıracak referans yok
+
+        if (Math.Abs(candidate / lastKnown - 1m) <= MaxTickMove)
+        {
+            _pendingSpike.Remove(storeSymbol);
+            return true;
+        }
+
+        if (_pendingSpike.TryGetValue(storeSymbol, out var pending) &&
+            pending > 0 &&
+            Math.Abs(candidate / pending - 1m) <= SpikeConfirmTolerance)
+        {
+            _pendingSpike.Remove(storeSymbol);
+            return true; // ikinci tick aynı yeni seviyeyi doğruladı — gerçek hareket
+        }
+
+        _pendingSpike[storeSymbol] = candidate;
+        _logger.LogDebug(
+            "TV FX quote: {Symbol} sıçrama adayı reddedildi ({Last} → {Candidate})",
+            storeSymbol, lastKnown, candidate);
+        return false;
     }
 
     private static async Task SendAsync(ClientWebSocket ws, string func, object[] args, CancellationToken ct)

@@ -1,8 +1,10 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
+using SanalBorsa.Domain.Enums;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.Stocks.Commands.SyncCorporateActions;
@@ -15,7 +17,6 @@ public class SyncCorporateActionsCommandHandler
     private readonly IIsYatirimCorporateActionService _isYatirim;
     private readonly ILogger<SyncCorporateActionsCommandHandler> _logger;
 
-    private const int DelayIsYatirimMs = 250;
     private const int DelayKapMs = 1500;
 
     public SyncCorporateActionsCommandHandler(
@@ -42,13 +43,20 @@ public class SyncCorporateActionsCommandHandler
             .OrderBy(s => s.Symbol)
             .ToList();
 
-        // Full historical bootstrap: İş Yatırım. Nightly incremental: KAP.
-        var useKap = !request.FullResync;
-        var delayMs = useKap ? DelayKapMs : DelayIsYatirimMs;
+        // Tam geçmişe dönük doldurma: KAP (ana/tercih edilen kaynak, resmi ve artık sağlam bir
+        // parser'ı var) + İş Yatırım (tamamlayıcı — KAP'ın kaçırdığı olayları yakalamak için) BİRLİKTE
+        // çekilip birleştiriliyor. Gece artımlı senkron: sadece KAP (zaten var olan kayıtların
+        // üzerine yeniden gitmeye gerek yok). Proje sohbeti: KOZAL'da İş Yatırım'ın hiç kaydı yokken
+        // KAP'ta vardı; AKFGY'de tam tersi bazı bültenler KAP parser'ının o anki haliyle kaçırılmıştı
+        // (artık düzeldi) — ikisi birbirini tamamlıyor, tek kaynağa güvenmek eksik veri riski taşıyor.
+        var delayMs = DelayKapMs;
 
         _logger.LogInformation(
-            "Corporate-action sync started — {Count} stocks, FullResync={Full}, Resume={Resume}, Source={Source}",
-            stocks.Count, request.FullResync, request.Resume, useKap ? "KAP" : "IsYatirim");
+            "Corporate-action sync started — {Count} stocks, FullResync={Full}, Resume={Resume}, SkipKap={SkipKap}, Source={Source}",
+            stocks.Count, request.FullResync, request.Resume, request.SkipKap,
+            request.FullResync
+                ? (request.SkipKap ? "IsYatirim only" : "KAP+IsYatirim (merged)")
+                : "KAP");
 
         if (request.FullResync && !request.Resume)
         {
@@ -79,7 +87,16 @@ public class SyncCorporateActionsCommandHandler
                 }
 
                 IReadOnlyList<CorporateAction> incoming;
-                if (useKap)
+                if (request.FullResync)
+                {
+                    var kapActions = request.SkipKap
+                        ? []
+                        : await _kap.GetCorporateActionsAsync(stock.Symbol, sinceDate: null, cancellationToken);
+                    var isYatirimActions = Deduplicate(await _isYatirim.GetCorporateActionsAsync(
+                        stock.Symbol, cancellationToken));
+                    incoming = CorporateActionMerge.MergePreferKap(kapActions, isYatirimActions);
+                }
+                else
                 {
                     var latestDb = await _uow.CorporateActions.GetLatestActionDateAsync(
                         stock.Id, cancellationToken);
@@ -87,11 +104,6 @@ public class SyncCorporateActionsCommandHandler
 
                     incoming = await _kap.GetCorporateActionsAsync(
                         stock.Symbol, sinceDate, cancellationToken);
-                }
-                else
-                {
-                    incoming = Deduplicate(await _isYatirim.GetCorporateActionsAsync(
-                        stock.Symbol, cancellationToken));
                 }
 
                 if (incoming.Count == 0)
@@ -158,7 +170,10 @@ public class SyncCorporateActionsCommandHandler
 
         _logger.LogInformation(
             "Corporate-action sync finished — processed={Processed}, skipped={Skipped}, added={Added}, removed={Removed}, failed={Failed}, source={Source}, affected={Affected}",
-            processed, skipped, added, removed, failed, useKap ? "KAP" : "IsYatirim", affectedSymbols.Count);
+            processed, skipped, added, removed, failed,
+            request.FullResync
+                ? (request.SkipKap ? "IsYatirim only" : "KAP+IsYatirim (merged)")
+                : "KAP", affectedSymbols.Count);
 
         return new SyncCorporateActionsResult(processed, skipped, added, removed, failed, affectedSymbols);
     }

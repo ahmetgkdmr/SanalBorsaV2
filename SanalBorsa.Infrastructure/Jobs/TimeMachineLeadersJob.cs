@@ -21,17 +21,25 @@ namespace SanalBorsa.Infrastructure.Jobs;
 public sealed class TimeMachineLeadersJob
 {
     private readonly IMediator _mediator;
+    private readonly IBackgroundJobClient _jobs;
     private readonly ILogger<TimeMachineLeadersJob> _logger;
 
-    public TimeMachineLeadersJob(IMediator mediator, ILogger<TimeMachineLeadersJob> logger)
+    public TimeMachineLeadersJob(
+        IMediator mediator, IBackgroundJobClient jobs, ILogger<TimeMachineLeadersJob> logger)
     {
         _mediator = mediator;
+        _jobs = jobs;
         _logger = logger;
     }
 
-    public async Task RunAsync(CancellationToken ct = default)
+    /// <param name="isRetry">
+    /// Bir önceki çalıştırmanın planladığı tek seferlik tekrar mı — sonsuz retry zincirini
+    /// önlemek için true ise tekrar bir retry PLANLAMAZ, sadece bu son denemeyi yapar.
+    /// </param>
+    public async Task RunAsync(CancellationToken ct = default, bool isRetry = false)
     {
-        _logger.LogInformation("TimeMachineLeadersJob started at {Time}", DateTimeOffset.UtcNow);
+        _logger.LogInformation(
+            "TimeMachineLeadersJob started at {Time} (retry={IsRetry})", DateTimeOffset.UtcNow, isRetry);
 
         try
         {
@@ -39,11 +47,19 @@ public sealed class TimeMachineLeadersJob
             foreach (var detail in parity.Details)
             {
                 _logger.LogInformation(
-                    "Parite {Symbol}: {Rows} satır, son {Latest:yyyy-MM-dd}{Error}",
+                    "Parite {Symbol}: {Rows} satır, son {Latest:yyyy-MM-dd}{Error}{Retry}",
                     detail.Symbol,
                     detail.RowsWritten,
                     detail.LatestDate,
-                    detail.Error is null ? string.Empty : $" — HATA: {detail.Error}");
+                    detail.Error is null ? string.Empty : $" — HATA: {detail.Error}",
+                    detail.NeedsRetry ? " — RETRY GEREKİYOR" : string.Empty);
+            }
+
+            if (parity.NeedsRetry && !isRetry)
+            {
+                _jobs.Schedule<TimeMachineLeadersJob>(j => j.RunAsync(CancellationToken.None, true), TimeSpan.FromHours(1));
+                _logger.LogWarning(
+                    "TimeMachineLeadersJob: en az bir parite sembolünün en yeni günü şüpheli — 1 saat sonra tek seferlik retry planlandı.");
             }
 
             var result = await _mediator.Send(new ComputeTimeMachineLeadersCommand(), ct);

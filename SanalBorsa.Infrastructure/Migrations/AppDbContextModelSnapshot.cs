@@ -22,6 +22,37 @@ namespace SanalBorsa.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.AppliedCorporateAction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AppliedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CorporateActionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Effect")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<Guid>("PortfolioId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorporateActionId", "PortfolioId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AppliedCorporateActions_Action_Portfolio");
+
+                    b.ToTable("AppliedCorporateActions", (string)null);
+                });
+
             modelBuilder.Entity("SanalBorsa.Domain.Entities.CorporateAction", b =>
                 {
                     b.Property<int>("Id")
@@ -35,6 +66,9 @@ namespace SanalBorsa.Infrastructure.Migrations
 
                     b.Property<int>("ActionType")
                         .HasColumnType("int");
+
+                    b.Property<bool>("AppliedToPortfolios")
+                        .HasColumnType("bit");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -61,6 +95,39 @@ namespace SanalBorsa.Infrastructure.Migrations
                         .HasDatabaseName("IX_CorporateActions_StockId_Date_Type");
 
                     b.ToTable("CorporateActions", (string)null);
+                });
+
+            modelBuilder.Entity("SanalBorsa.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("IX_Notifications_User_CreatedAt");
+
+                    b.ToTable("Notifications", (string)null);
                 });
 
             modelBuilder.Entity("SanalBorsa.Domain.Entities.PortfolioHolding", b =>
@@ -211,6 +278,10 @@ namespace SanalBorsa.Infrastructure.Migrations
                         .HasMaxLength(32)
                         .IsUnicode(false)
                         .HasColumnType("varchar(32)");
+
+                    b.Property<string>("TradingHaltReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -529,6 +600,12 @@ namespace SanalBorsa.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");

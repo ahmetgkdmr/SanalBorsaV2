@@ -20,6 +20,8 @@ public interface IUnitOfWork : IDisposable
 
     ITimeMachineLeaderRepository TimeMachineLeaders { get; }
 
+    INotificationRepository Notifications { get; }
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 
     /// <summary>Detaches all tracked entities after a failed SaveChanges so the next stock can proceed.</summary>

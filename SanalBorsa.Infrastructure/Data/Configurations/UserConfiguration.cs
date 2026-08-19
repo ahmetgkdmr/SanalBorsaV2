@@ -43,6 +43,7 @@ public class UserPortfolioConfiguration : IEntityTypeConfiguration<UserPortfolio
         builder.ToTable("UserPortfolios");
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Cash).HasPrecision(18, 4);
+        builder.Property(p => p.RowVersion).IsRowVersion();
         builder.HasIndex(p => p.UserId).IsUnique();
 
         builder.HasMany(p => p.Holdings)

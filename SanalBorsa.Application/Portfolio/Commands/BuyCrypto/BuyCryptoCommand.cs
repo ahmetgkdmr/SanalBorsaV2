@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MediatR;
+using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.DTOs;
@@ -32,7 +33,10 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
         _fx = fx;
     }
 
-    public async Task<CryptoTradeResultDto> Handle(BuyCryptoCommand request, CancellationToken cancellationToken)
+    public Task<CryptoTradeResultDto> Handle(BuyCryptoCommand request, CancellationToken cancellationToken)
+        => ConcurrencySafe.RunAsync(_uow, () => ExecuteAsync(request, cancellationToken));
+
+    private async Task<CryptoTradeResultDto> ExecuteAsync(BuyCryptoCommand request, CancellationToken cancellationToken)
     {
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);

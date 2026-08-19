@@ -25,4 +25,19 @@ public interface ICorporateActionRepository : IRepository<CorporateAction>
     Task<IReadOnlyList<CorporateAction>> GetByStockIdsAsync(
         IReadOnlyList<int> stockIds,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Portföylere henüz uygulanmamış (AppliedToPortfolios=false), tarihi geçmiş/bugün olan
+    /// Bedelsiz/Bedelli/Temettü olayları — Stock dahil (Symbol/MarketType için).
+    /// </summary>
+    Task<IReadOnlyList<CorporateAction>> GetUnappliedPortfolioActionsAsync(
+        DateTime onOrBeforeDate,
+        CancellationToken ct = default);
+
+    /// <summary>Bu (olay, portföy) çifti daha önce işlendi mi — idempotency kontrolü.</summary>
+    Task<bool> IsAppliedToPortfolioAsync(int corporateActionId, Guid portfolioId, CancellationToken ct = default);
+
+    /// <summary>Bir (olay, portföy) uygulamasını kalıcı olarak işaretler.</summary>
+    Task RecordAppliedAsync(
+        int corporateActionId, Guid portfolioId, string effect, CancellationToken ct = default);
 }

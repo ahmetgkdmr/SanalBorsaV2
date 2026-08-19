@@ -7,25 +7,32 @@ using SanalBorsa.Domain.Enums;
 namespace SanalBorsa.Application.Common.Services;
 
 /// <summary>
-/// Para hesabı artık olay-bazlı simülasyon (her split/temettü/bedelliyi tek tek uygulayıp lot/nakit
-/// takip etmek) yerine <see cref="StockPriceHistory.AdjustedClose"/> (TradingView "dividends" —
-/// split + temettü dahil toplam getiri) serisindeki orana dayanıyor:
+/// Para hesabı <see cref="StockPriceHistory.AdjustedClose"/> (TradingView "dividends" — split +
+/// temettü dahil toplam getiri) serisindeki orana dayanıyor:
 /// bugünküDeğer = yatırılanTutar × (AdjustedClose_bugün / AdjustedClose_alımGünü).
 /// Bu, hangi olayın "gerçek temettü" hangisinin "spin-off" olduğunu bizim ayırt etmemize gerek
 /// bırakmıyor, split'i çifte saymayı imkansız kılıyor ve bedelli'nin (rüçhan) doğru ekonomik
-/// etkisini (TERP) bizim yerimize TradingView'e bırakıyor (bkz. proje sohbeti — GE/Citigroup
-/// spin-off'ları ve GARAN bedelli testleri bu yaklaşımı doğruladı).
-/// Olaylar (split/bedelli/bedelsiz/temettü) hâlâ hikaye/lotEvents için gösterilir, ama artık parayı
-/// etkilemezler — sadece "bu tarihte şu oldu, lot sayın böyle değişti" bilgisi verirler; bedelli/
-/// bedelsiz için lot çarpanı, olayın bildirdiği (bazen hatalı) orandan değil, o günün HAM fiyatındaki
-/// gerçek öncesi/sonrası değişiminden (ampirik) türetilir.
+/// etkisini (TERP) bizim yerimize TradingView'e bırakıyor.
+///
+/// GEÇMİŞ HAM FİYATA (ve ondan türetilen "o gün kaç lot aldın / şu bedelsizle lotun kaça çıktı" gibi
+/// olay-bazlı lot zincirlemesine) ARTIK HİÇ GÜVENMİYORUZ — proje sohbeti: AFYON 2010 vakasında
+/// (KAP kararı ile fiili hak kullanımı arasında aylarca süren, hissenin "eski/yeni" iki ayrı tahtada
+/// paralel işlem gördüğü bir dönem) ham fiyat serisinin kendisi tutarsız çıktı; kayıtlı kurumsal
+/// olayların büyüklüğü de (İş Yatırım kaynaklı "1 TL" temettü gibi) hatalı olabiliyor. Bu yüzden:
+/// - "Lot" sayısı artık SADECE bugünün (her zaman güvenilir) ham fiyatına bölünerek türetiliyor
+///   (bugünküLot = bugünküDeğer / bugünküHamFiyat) — para eğrisiyle aynı şekle sahip, düz bir eğri;
+///   hiçbir ay/olayda ham fiyat gürültüsünden kaynaklı sahte bir sıçrama YAPAMAZ.
+/// - Kurumsal olaylar (lotEvents) artık lot/nakit değişimi İDDİA ETMİYOR — sadece "bu tarihte bu
+///   TÜRDE bir olay oldu" bilgisini taşıyor (bkz. BuildEventMarkers).
 /// </summary>
 public static class TimeMachineCalculator
 {
     private static readonly CultureInfo TrCulture = new("tr-TR");
 
-    /// <summary>2005 öncesi 1 işlem lotu = 1000 adet; fiyat serisi bugünkü lot biriminde.</summary>
-    private const int OldSharesPerLot = 1000;
+    /// <summary>2005 öncesi Yeni TL rakamları, gerçek (eski) nominal tutarı 1.000.000'a bölerek
+    /// saklanıyor (bkz. MinimumWageByYear) — hikayede önce gerçek eski TL rakamı, yanında parantez
+    /// içinde Yeni TL karşılığı gösteriliyor.</summary>
+    private static readonly DateTime RedenominationDate = new(2005, 1, 1);
 
     /// <summary>En küçük alınabilir miktar (≈ 1 eski adet).</summary>
     private const decimal MinLots = 0.001m;
@@ -83,16 +90,18 @@ public static class TimeMachineCalculator
         if (monthlyPoints.Count == 0)
             return Error(symbol, normalizedMode, buyDate, "Simülasyon için yeterli fiyat verisi yok.");
 
+        var isWageBased = !(amount.HasValue && amount.Value > 0);
+
         if (normalizedMode == "lump")
         {
             return CalculateLump(
                 symbol, normalizedMode, dateLabel, buyDate, buyPrice, adjustedBuy, wage,
-                monthlyPoints, orderedActions, orderedPrices, market);
+                monthlyPoints, orderedActions, orderedPrices, market, isWageBased);
         }
 
         return CalculateDca(
             symbol, normalizedMode, dateLabel, buyDate, buyPrice, wagePercentage, amount, market,
-            monthlyPoints, orderedActions, orderedPrices);
+            monthlyPoints, orderedActions, orderedPrices, isWageBased);
     }
 
     private static TimeMachineResultDto CalculateLump(
@@ -106,7 +115,8 @@ public static class TimeMachineCalculator
         IReadOnlyList<MonthlyPricePoint> monthlyPoints,
         IReadOnlyList<CorporateAction> actions,
         IReadOnlyList<StockPriceHistory> dailyPrices,
-        MarketType market)
+        MarketType market,
+        bool isWageBased)
     {
         var initialLots = buyPrice > 0m ? RoundLots(wage / buyPrice) : 0m;
         if (initialLots < MinLots)
@@ -118,6 +128,7 @@ public static class TimeMachineCalculator
         }
 
         var invested = wage;
+        var todayPrice = monthlyPoints[^1].Price;
 
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
@@ -129,24 +140,33 @@ public static class TimeMachineCalculator
             var value = adjustedBuy > 0m ? invested * (adjAtPoint / adjustedBuy) : invested;
             series.Add(new SimulationPointDto(point.Year, point.Month, point.Price));
             valueSeries.Add(value);
-            lotSeries.Add(point.Price > 0m ? RoundLots(value / point.Price) : 0m);
+            // Lot eğrisi SADECE bugünün (sabit, güvenilir) ham fiyatına bölünüyor — bkz. dosya başı
+            // açıklaması: geçmişin ham fiyatına asla güvenmiyoruz, bu yüzden lot eğrisi para eğrisiyle
+            // aynı şekle sahip, düz bir eğri (hiçbir ay/olayda sahte sıçrama yapamaz).
+            lotSeries.Add(todayPrice > 0m ? RoundLots(value / todayPrice) : 0m);
         }
 
         var currentValue = valueSeries[^1];
         var finalLots = lotSeries[^1];
         var gainPct = invested > 0 ? (currentValue - invested) / invested * 100m : 0m;
 
-        var (lotEvents, dividendsReceived) = BuildNarrativeEvents(
-            actions, dailyPrices, initialLots, buyDate);
+        // "Başlangıç" lot da bugünün fiyatına bölünüyor (finalLots ile aynı payda) — böylece
+        // başlangıç→bugün farkı SADECE para büyümesini yansıtır, ham fiyat kaynaklı sahte bir
+        // sıçrama görünmez (bkz. dosya başı açıklaması).
+        var initialLotsSafe = todayPrice > 0m ? RoundLots(invested / todayPrice) : 0m;
+
+        var lotEvents = BuildEventMarkers(actions, invested, adjustedBuy, todayPrice, dailyPrices);
 
         var story = BuildStoryLines(
-            symbol, dateLabel, mode, invested, initialLots, finalLots, buyDate, market,
-            dividendsReceived, currentValue, lotEvents);
+            dateLabel, mode, invested, finalLots, buyDate, market,
+            currentValue, lotEvents, isWageBased);
 
         return new TimeMachineResultDto(
-            symbol, mode, invested, currentValue, gainPct, initialLots, finalLots,
-            buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, 0m, 0m, 0m, story,
+            // BuyPrice: o günün ham kapanışı değil, "bugünün alım gücüyle" karşılığı (adjustedBuy) —
+            // bkz. dosya başı açıklaması, geçmişin ham fiyatını hiçbir yerde göstermiyoruz artık.
+            symbol, mode, invested, currentValue, gainPct, initialLotsSafe, finalLots,
+            adjustedBuy, todayPrice, series, valueSeries, lotSeries, lotEvents, dateLabel,
+            0m, 0m, 0m, 0m, story,
             DailySeries: BuildDailySeries(dailyPrices, buyDate, invested, adjustedBuy));
     }
 
@@ -161,13 +181,15 @@ public static class TimeMachineCalculator
         MarketType market,
         IReadOnlyList<MonthlyPricePoint> monthlyPoints,
         IReadOnlyList<CorporateAction> actions,
-        IReadOnlyList<StockPriceHistory> dailyPrices)
+        IReadOnlyList<StockPriceHistory> dailyPrices,
+        bool isWageBased)
     {
         // Her aylık katkı kendi alım anındaki AdjustedClose'una göre ayrı ayrı büyür; bir noktadaki
         // toplam değer, o ana kadarki bütün katkıların o günkü karşılıklarının toplamıdır.
         var contributions = new List<(decimal Amount, decimal AdjustedAtBuy)>();
         decimal invested = 0m;
         decimal initialLots = 0m;
+        var todayPrice = monthlyPoints[^1].Price;
 
         var series = new List<SimulationPointDto>();
         var valueSeries = new List<decimal>();
@@ -197,7 +219,8 @@ public static class TimeMachineCalculator
             var value = contributions.Sum(c => c.AdjustedAtBuy > 0m ? c.Amount * (adjAtPoint / c.AdjustedAtBuy) : 0m);
             series.Add(new SimulationPointDto(point.Year, point.Month, point.Price));
             valueSeries.Add(value);
-            lotSeries.Add(point.Price > 0m ? RoundLots(value / point.Price) : 0m);
+            // Lot eğrisi burada da sabit (bugünkü) fiyata bölünüyor — bkz. CalculateLump açıklaması.
+            lotSeries.Add(todayPrice > 0m ? RoundLots(value / todayPrice) : 0m);
         }
 
         var finalLots = lotSeries.Count > 0 ? lotSeries[^1] : 0m;
@@ -214,199 +237,159 @@ public static class TimeMachineCalculator
 
         var currentValue = valueSeries[^1];
         var gainPct = invested > 0 ? (currentValue - invested) / invested * 100m : 0m;
+        var firstAdjusted = contributions.Count > 0 ? contributions[0].AdjustedAtBuy : 0m;
+        var firstContribution = contributions.Count > 0 ? contributions[0].Amount : 0m;
 
-        var (lotEvents, dividendsReceived) = BuildNarrativeEvents(
-            actions, dailyPrices, initialLots, buyDate);
+        // Başlangıç lotu da bugünün fiyatına bölünüyor — bkz. CalculateLump açıklaması.
+        var initialLotsSafe = todayPrice > 0m && firstContribution > 0m
+            ? RoundLots(firstContribution / todayPrice)
+            : finalLots;
+
+        var lotEvents = BuildEventMarkers(actions, invested, firstAdjusted, todayPrice, dailyPrices);
 
         var story = BuildStoryLines(
-            symbol, dateLabel, mode, invested, initialLots, finalLots, buyDate, market,
-            dividendsReceived, currentValue, lotEvents);
+            dateLabel, mode, invested, finalLots, buyDate, market,
+            currentValue, lotEvents, isWageBased);
 
-        var firstAdjusted = contributions.Count > 0 ? contributions[0].AdjustedAtBuy : 0m;
         return new TimeMachineResultDto(
-            symbol, mode, invested, currentValue, gainPct, initialLots, finalLots,
-            buyPrice, monthlyPoints[^1].Price, series, valueSeries, lotSeries, lotEvents, dateLabel,
-            dividendsReceived, 0m, 0m, 0m, story,
+            // BuyPrice burada da adjustedBuy'ın DCA karşılığı (ilk katkının o günkü, "bugünün alım
+            // gücüyle" değeri) — ham fiyat değil.
+            symbol, mode, invested, currentValue, gainPct, initialLotsSafe, finalLots,
+            firstAdjusted, todayPrice, series, valueSeries, lotSeries, lotEvents, dateLabel,
+            0m, 0m, 0m, 0m, story,
             DailySeries: BuildDcaDailySeries(dailyPrices, buyDate, contributions));
     }
 
     /// <summary>
-    /// Olayları PARAYI etkilemeden, sadece hikaye/lotEvents için yürür: bedelsiz/bedelli lot
-    /// çarpanı, olayın bildirdiği (bazen hatalı — bkz. rüçhan fiyatı 1000 sabit bug'ı) değerden
-    /// değil, o günün ham kapanışındaki gerçek öncesi/sonrası değişiminden türetilir. Temettü
-    /// sadece "bu kadar ödedi" diye raporlanır, yeniden yatırım/lot artışı iddia edilmez.
+    /// Kurumsal olayları artık lot/nakit DEĞİŞİMİ iddia etmeden, sadece "bu tarihte bu TÜRDE bir
+    /// olay oldu" bilgisi olarak işaretler — proje sohbeti: geçmişin ham fiyatından (ya da olayın
+    /// kendi bildirdiği, bazen hatalı yüzdeden — bkz. AFYON'un uydurma ×25 kaydı, AFYON'un şişirilmiş
+    /// "1 TL" temettüleri) türetilen "önce/sonra lot" hesabı defalarca yanlış çıktı; bazı vakalarda
+    /// (AFYON 2010) ham fiyat serisinin kendisi bile tutarsızdı (aylarca süren eski/yeni tahta
+    /// ayrımı). Her işaretteki LotsBefore/LotsAfter, o tarihteki NOTİONAL lotu (o günkü para değeri
+    /// ÷ BUGÜNKÜ sabit fiyat) taşır — ikisi eşit, yani hiçbir sıçrama iddia edilmiyor, sadece "para
+    /// eğrisinde bu noktada bir olay var" bilgisi.
     /// </summary>
-    private static (List<LotEventMarkerDto> Events, decimal DividendsReceived) BuildNarrativeEvents(
+    private static List<LotEventMarkerDto> BuildEventMarkers(
         IReadOnlyList<CorporateAction> actions,
-        IReadOnlyList<StockPriceHistory> dailyPrices,
-        decimal initialLots,
-        DateTime buyDate)
+        decimal invested,
+        decimal adjustedBuy,
+        decimal todayPrice,
+        IReadOnlyList<StockPriceHistory> dailyPrices)
     {
         var events = new List<LotEventMarkerDto>();
-        var narrativeLots = initialLots;
-        var dividendsReceived = 0m;
 
         foreach (var action in actions)
         {
-            var lotsBefore = RoundLots(narrativeLots);
-            decimal? cashReceived = null;
-            string? story = null;
-            var pointYear = action.ActionDate.Year;
-            var pointMonth = action.ActionDate.Month;
+            if (action.ActionType is not (CorporateActionType.BonusIssue
+                or CorporateActionType.RightsIssue or CorporateActionType.Dividend))
+                continue;
 
-            switch (action.ActionType)
+            var adjAtAction = FindAdjustedCloseOnOrAfter(dailyPrices, action.ActionDate) ?? adjustedBuy;
+            var valueAtAction = adjustedBuy > 0m ? invested * (adjAtAction / adjustedBuy) : invested;
+            var notionalLots = todayPrice > 0m ? RoundLots(valueAtAction / todayPrice) : 0m;
+
+            var (label, storyVerb) = action.ActionType switch
             {
-                case CorporateActionType.Dividend:
-                {
-                    var received = narrativeLots * action.Value;
-                    if (received <= 0m) continue;
-                    dividendsReceived += received;
-                    cashReceived = received;
-                    story = $"{action.ActionDate:d MMMM yyyy}: {received:N2} ₺ temettü verdi.";
-                    break;
-                }
-
-                case CorporateActionType.BonusIssue:
-                case CorporateActionType.RightsIssue:
-                {
-                    var multiplier = EmpiricalLotMultiplier(dailyPrices, action.ActionDate);
-                    if (multiplier is null || multiplier.Value <= 0m || Math.Abs(multiplier.Value - 1m) < 0.001m)
-                        continue;
-
-                    narrativeLots = RoundLots(narrativeLots * multiplier.Value);
-                    var isBedelli = action.ActionType == CorporateActionType.RightsIssue;
-                    var label = isBedelli ? "Bedelli" : multiplier.Value < 1m ? "Ters split" : "Bedelsiz";
-                    story = multiplier.Value < 1m
-                        ? $"{action.ActionDate:d MMMM yyyy}: {label} (÷{1m / multiplier.Value:0.##}) → lot {FormatLots(lotsBefore)} → {FormatLots(narrativeLots)}"
-                        : $"{action.ActionDate:d MMMM yyyy}: {label} (×{multiplier.Value:0.##}) → lot {FormatLots(lotsBefore)} → {FormatLots(narrativeLots)}";
-                    break;
-                }
-
-                default:
-                    continue;
-            }
+                CorporateActionType.BonusIssue => ("Bedelsiz", "bedelsiz sermaye artırımı oldu"),
+                CorporateActionType.RightsIssue => ("Bedelli", "bedelli sermaye artırımı oldu"),
+                CorporateActionType.Dividend => ("Temettü", "temettü ödendi"),
+                _ => ("Şirket olayı", "bir şirket olayı oldu"),
+            };
 
             events.Add(new LotEventMarkerDto(
-                pointYear, pointMonth,
+                action.ActionDate.Year, action.ActionDate.Month,
                 action.ActionDate.ToString("d MMMM yyyy", TrCulture),
                 action.ActionType.ToString(),
-                BuildLotEventLabel(action),
-                lotsBefore, RoundLots(narrativeLots), action.Description,
-                cashReceived, null, story, action.ActionDate.Day));
+                label, notionalLots, notionalLots, action.Description,
+                null, null,
+                $"{action.ActionDate:d MMMM yyyy}: {storyVerb}.",
+                action.ActionDate.Day));
         }
 
-        return (events, dividendsReceived);
+        return events;
+    }
+
+    private static decimal? FindAdjustedCloseOnOrAfter(
+        IReadOnlyList<StockPriceHistory> dailyPrices, DateTime date)
+    {
+        foreach (var p in dailyPrices)
+        {
+            if (p.Date.Date < date.Date) continue;
+            return p.AdjustedClose > 0m ? p.AdjustedClose : null;
+        }
+        return null;
     }
 
     /// <summary>
-    /// Bir olayın gerçek lot çarpanını, olayın kendi bildirdiği orandan değil, o günün ham
-    /// kapanışındaki önceki/sonraki günün gerçek fiyat değişiminden çıkarır (çarpan = önceki/sonraki
-    /// fiyat oranı). Bedelsizde bu zaten olayın value'suyla örtüşür (bedava, saf matematik); bedelli
-    /// gibi bedel içeren olaylarda ise gerçek (TERP'e uygun) ekonomik etkiyi yansıtır — rüçhan
-    /// fiyatı verisine hiç ihtiyaç duymadan.
+    /// Hikaye iki satıra indirildi — proje sohbeti: "o gün hisse bugünün parasıyla X ₺'ydi" bilgisi
+    /// zaten sonuç ekranındaki ayrı bir kutuda (BuyPrice) gösteriliyor, burada tekrar etmiyor;
+    /// asgari-ücret-bazlı yatırımlarda o dönemin asgari ücret bağlamı, ayrı bir satır yerine doğrudan
+    /// yatırım cümlesine gömülüyor. Kurumsal olaylar yıl yıl değil, TÜRE göre toplam sayı olarak
+    /// özetleniyor — büyüklük/lot değişimi iddia edilmiyor (bkz. dosya başı açıklaması).
     /// </summary>
-    private static decimal? EmpiricalLotMultiplier(IReadOnlyList<StockPriceHistory> dailyPrices, DateTime actionDate)
-    {
-        StockPriceHistory? before = null;
-        foreach (var p in dailyPrices)
-        {
-            if (p.Date.Date >= actionDate.Date) break;
-            before = p;
-        }
-
-        StockPriceHistory? after = null;
-        foreach (var p in dailyPrices)
-        {
-            if (p.Date.Date < actionDate.Date) continue;
-            after = p;
-            break;
-        }
-
-        if (before is null || after is null || before.Close <= 0m || after.Close <= 0m)
-            return null;
-
-        return before.Close / after.Close;
-    }
-
     private static List<string> BuildStoryLines(
-        string symbol,
         string dateLabel,
         string mode,
         decimal invested,
-        decimal initialLots,
         decimal finalLots,
         DateTime buyDate,
         MarketType market,
-        decimal dividendsReceived,
         decimal currentValue,
-        IReadOnlyList<LotEventMarkerDto> events)
+        IReadOnlyList<LotEventMarkerDto> events,
+        bool isWageBased)
     {
         var lines = new List<string>();
 
-        if (mode == "dca")
-        {
-            lines.Add(
-                $"{dateLabel}'den bugüne düzenli alımla toplam {FormatMoney(invested)} ₺ yatırdın; ilk birikimin ~{FormatLots(initialLots)} lot {symbol}.");
-        }
-        else if (market == MarketType.Bist && buyDate.Year < 2005)
-        {
-            var adet = (long)Math.Round(initialLots * OldSharesPerLot);
-            lines.Add(
-                $"{dateLabel}'de {FormatMoney(invested)} ₺ ile {adet:N0} adet {symbol} aldın " +
-                $"(o dönemde 1000 adet = 1 lot → ≈ {FormatLots(initialLots)} lot; 2005’te bu birime geçildi).");
-        }
-        else
-        {
-            lines.Add(
-                $"{dateLabel}'de {FormatMoney(invested)} ₺ ile {FormatLots(initialLots)} lot {symbol} aldın.");
-        }
+        // "invested", DCA'da TÜM ayların TOPLAMI — "her ay ... yatırsaydın" cümlesinin nesnesi
+        // olarak doğrudan yazılırsa, o dev toplam sanki AYLIK tutarmış gibi okunuyordu (proje
+        // sohbeti: 37 yıllık bir DCA'da "her ay bir asgari ücret olan 1 trilyon TL" gibi saçma bir
+        // cümle çıkıyordu). Bu yüzden DCA'da toplam ayrı, "(toplamda X yatırmış olurdun)" şeklinde
+        // parantez içinde; aylık tutarın kendisi (asgari ücret bazlıysa yıldan yıla değiştiği için)
+        // hiç sayı olarak iddia edilmiyor.
+        var investedLabel = FormatOldTlAware(invested, buyDate);
+        var wageContext = isWageBased && market == MarketType.Bist
+            ? "bir asgari ücret olan "
+            : "";
 
-        var bonusOrRights = events.Count(e =>
-            e.ActionType is nameof(CorporateActionType.BonusIssue) or nameof(CorporateActionType.RightsIssue));
-        if (bonusOrRights > 0)
-        {
-            var bedelsiz = events.Count(e => e.ActionType == nameof(CorporateActionType.BonusIssue));
-            var bedelli = events.Count(e => e.ActionType == nameof(CorporateActionType.RightsIssue));
-            var parts = new List<string>();
-            if (bedelsiz > 0) parts.Add($"{bedelsiz} bedelsiz");
-            if (bedelli > 0) parts.Add($"{bedelli} bedelli");
-            var lastLots = events[^1].LotsAfter;
-            lines.Add(
-                $"{string.Join(" ve ", parts)} oldu — lot sayın {FormatLots(initialLots)} → {FormatLots(lastLots)} arasında değişti.");
-        }
+        // Bugünkü TL değeri (currentValue) burada bilerek yok — frontend onu ayrı, kazanç/kayıp
+        // rengiyle (yeşil/kırmızı) boyanmış bir cümle olarak ayrıca gösteriyor.
+        lines.Add(mode == "dca"
+            ? (isWageBased && market == MarketType.Bist
+                ? $"{dateLabel}'den bugüne her ay bir asgari ücret yatırsaydın " +
+                  $"(toplamda {investedLabel} yatırmış olurdun), bugün toplam ~{FormatLots(finalLots)} lotun olurdu."
+                : $"{dateLabel}'den bugüne düzenli olarak her ay yatırsaydın " +
+                  $"(toplamda {investedLabel} yatırmış olurdun), bugün toplam ~{FormatLots(finalLots)} lotun olurdu.")
+            : $"{dateLabel}'de {wageContext}{investedLabel} yatırsaydın, bugün toplam ~{FormatLots(finalLots)} lotun olurdu.");
 
-        if (dividendsReceived > 0m)
+        var eventCounts = events
+            .GroupBy(e => e.Label)
+            .OrderByDescending(g => g.Count())
+            .Select(g => $"{g.Count()} {g.Key.ToLowerInvariant()}")
+            .ToList();
+        if (eventCounts.Count > 0)
         {
-            lines.Add($"Bu süreçte toplam {FormatMoney(dividendsReceived)} ₺ temettü verdi.");
+            lines.Add("Günümüze kadar " + string.Join(", ", eventCounts) + " oldu.");
         }
-
-        // Kapanış cümlesi, yukarıdaki bedelli/bedelsiz satırındaki GERÇEK (fiziki) lot sayısıyla
-        // (events[^1].LotsAfter) devam eder — "finalLots" (lotSeries'ten, AdjustedClose bazlı değer ÷
-        // bugünkü ham fiyat oranı) tamamen farklı bir metrik ("bu para bugün kaç lot alırdı") olduğu
-        // için önceki cümledeki sayıyla çelişiyormuş gibi görünüyordu (ör. 2.439 → 25.397 olduktan
-        // sonra "sonuç 24.409" demek, sanki lot azalmış gibi okunuyordu). currentValue (AdjustedClose
-        // bazlı, doğru) parasal getiriyi hâlâ birebir yansıtıyor; sadece hangi lot sayısının yanına
-        // yazıldığı değişti.
-        var realFinalLots = events.Count > 0 ? events[^1].LotsAfter : initialLots;
-        lines.Add(
-            $"Sonuç: elindeki ~{FormatLots(realFinalLots)} lot {symbol}'in bugünkü değeri {FormatMoney(currentValue)} ₺.");
 
         return lines;
     }
 
-    private static string BuildLotEventLabel(CorporateAction action)
-        => action.ActionType switch
-        {
-            CorporateActionType.BonusIssue when action.Value < 1m =>
-                $"Ters split (÷{(1m / action.Value):0.##})",
-            CorporateActionType.BonusIssue =>
-                $"Bedelsiz %{((action.Value - 1m) * 100m):0.#} (×{action.Value:0.##})",
-            CorporateActionType.RightsIssue =>
-                $"Bedelli %{(action.Value * 100m):0.#}",
-            CorporateActionType.Dividend =>
-                $"Temettü {action.Value:0.####} ₺/lot",
-            _ => "Şirket olayı",
-        };
+    /// <summary>
+    /// 2005 öncesi tarihler için, Yeni TL cinsinden saklanan tutarı gerçek (eski) nominal karşılığına
+    /// (×1.000.000) çevirip önce onu, yanında parantez içinde Yeni TL karşılığını gösterir — proje
+    /// sohbeti: "1993 asgari ücreti 1,56 ₺'ydi" demek yanıltıcı, o dönem gerçekte "1.563.473 TL"
+    /// yazıyordu, 1,56 ₺ sadece bugünkü fiyat serisiyle aynı birimde göstermek için sonradan
+    /// bölünmüş bir rakam.
+    /// </summary>
+    private static string FormatOldTlAware(decimal newTlAmount, DateTime date)
+    {
+        if (date >= RedenominationDate)
+            return $"{FormatMoney(newTlAmount)} ₺";
+
+        var oldTlAmount = newTlAmount * 1_000_000m;
+        return $"{FormatMoney(oldTlAmount)} TL ({FormatMoney(newTlAmount)} ₺ Yeni TL karşılığı)";
+    }
 
     private static StockPriceHistory? FindOnOrAfter(
         IReadOnlyList<StockPriceHistory> prices,
@@ -422,6 +405,13 @@ public static class TimeMachineCalculator
             : lots >= 10m
                 ? lots.ToString("N1", TrCulture)
                 : lots.ToString("N2", TrCulture);
+
+    /// <summary>Birim fiyat — düşük fiyatlı hisselerde (ör. 0,40 ₺) anlamlı kalsın diye 4 basamağa
+    /// kadar ondalık gösterir ama gereksiz sondaki sıfırları (0,4000 değil 0,4) atar.</summary>
+    private static string FormatPrice(decimal price)
+        => Math.Abs(price) >= 100m
+            ? price.ToString("N0", TrCulture)
+            : price.ToString("#,##0.####", TrCulture);
 
     private static string FormatMoney(decimal value)
         => value >= 100m

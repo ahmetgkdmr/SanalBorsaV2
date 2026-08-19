@@ -12,6 +12,7 @@ using SanalBorsa.Application.Stocks.Queries.CalculateTimeMachine;
 using SanalBorsa.Application.Stocks.Queries.GetStockDetail;
 using SanalBorsa.Application.Stocks.Queries.GetUsStocks;
 using SanalBorsa.Domain.Entities;
+using SanalBorsa.Infrastructure.Jobs;
 
 namespace SanalBorsa.API.Controllers;
 
@@ -75,6 +76,36 @@ public class UsStocksController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// TÜM ABD fiyat geçmişini (ham + AdjustedClose) Yahoo Finance'e karşı denetler; %2'den fazla
+    /// sapan hisseleri TradingView'den yeniden çeker, hâlâ sapıyorsa loglar (manuel inceleme).
+    /// Yüzlerce hisse × tam geçmiş olduğu için uzun sürer — arka planda çalışır.
+    /// </summary>
+    [HttpPost("price-audit")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> PriceAudit(
+        [FromServices] PriceDataAuditJob job,
+        [FromQuery] string? symbol = null,
+        [FromQuery] bool sync = false,
+        CancellationToken ct = default)
+    {
+        if (sync)
+        {
+            await job.RunAsync(MarketType.UsStocks, symbol, ct);
+            return Ok(new { message = "ABD fiyat denetimi tamamlandı (senkron) — detaylar loglarda.", symbol });
+        }
+
+        var jobId = _jobs.Enqueue<PriceDataAuditJob>(
+            j => j.RunAsync(MarketType.UsStocks, symbol, CancellationToken.None));
+
+        return Accepted(new
+        {
+            message = "ABD fiyat denetimi (Yahoo Finance'e karşı) başladı — arka planda çalışıyor, loglardan takip edilebilir.",
+            symbol,
+            jobId,
+        });
+    }
+
     /// <summary>Temettü + split senkronu (Yahoo Finance). Sadece ekler/dedupe eder, silmez.</summary>
     [HttpPost("corporate-actions/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
@@ -92,11 +123,21 @@ public class UsStocksController : ControllerBase
     /// </summary>
     [HttpPost("adjusted-closes/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult SyncAdjustedCloses(
+    [ProducesResponseType(typeof(SyncUsAdjustedClosesResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SyncAdjustedCloses(
         [FromQuery] string? symbol = null,
-        [FromQuery] int? lookbackDays = null)
+        [FromQuery] int? lookbackDays = null,
+        [FromQuery] bool sync = false,
+        CancellationToken ct = default)
     {
         var cmd = new SyncUsAdjustedClosesCommand(symbol, lookbackDays);
+
+        if (sync)
+        {
+            var result = await _mediator.Send(cmd, ct);
+            return Ok(result);
+        }
+
         var jobId = _jobs.Enqueue<IMediator>(m => m.Send(cmd, CancellationToken.None));
 
         return Accepted(new { message = "ABD düzeltilmiş kapanış sync başladı (TradingView).", symbol, jobId });

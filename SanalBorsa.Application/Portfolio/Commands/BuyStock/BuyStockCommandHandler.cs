@@ -16,7 +16,10 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
         _uow = uow;
     }
 
-    public async Task<PortfolioDto> Handle(BuyStockCommand request, CancellationToken cancellationToken)
+    public Task<PortfolioDto> Handle(BuyStockCommand request, CancellationToken cancellationToken)
+        => ConcurrencySafe.RunAsync(_uow, () => ExecuteAsync(request, cancellationToken));
+
+    private async Task<PortfolioDto> ExecuteAsync(BuyStockCommand request, CancellationToken cancellationToken)
     {
         BistTradingHours.EnsureOpen();
 
@@ -29,6 +32,9 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
         var symbol = request.Symbol.ToUpperInvariant();
         var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken)
             ?? throw new NotFoundException("Stock", request.Symbol);
+
+        if (stock.TradingHaltReason is not null)
+            throw new InvalidOperationException($"{stock.Symbol} hissesi için {stock.TradingHaltReason}");
 
         var snapshot = await _uow.PriceHistories.GetMarketSnapshotsAsync(
             [stock.Id], sparklineDays: 1, ct: cancellationToken);

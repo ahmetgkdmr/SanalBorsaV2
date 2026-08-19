@@ -9,7 +9,10 @@ namespace SanalBorsa.Application.Stocks.Commands.SyncUsAdjustedCloses;
 /// </summary>
 public record SyncUsAdjustedClosesCommand(
     string? Symbol = null,
-    int? LookbackDays = null)
+    int? LookbackDays = null,
+    /// <summary>0 = ilk deneme, retry zincirindeyse deneme sırası (sadece loglama amaçlı —
+    /// retry zamanlamasına AdjustedCloseRetryJob karar verir, bkz. AnomalyRetryPolicy).</summary>
+    int RetryAttempt = 0)
     : IRequest<SyncUsAdjustedClosesResult>;
 
 public record SyncUsAdjustedClosesResult(
@@ -17,4 +20,6 @@ public record SyncUsAdjustedClosesResult(
     int Synced,
     int RowsUpdated,
     int Failed,
-    string? Error);
+    string? Error,
+    int Suspicious = 0,
+    IReadOnlyList<string>? SuspiciousSymbols = null);

@@ -14,6 +14,41 @@ public class PortfolioRepository : BaseRepository<UserPortfolio>, IPortfolioRepo
             .Include(p => p.Holdings)
             .FirstOrDefaultAsync(p => p.UserId == userId, ct);
 
+    public async Task<UserPortfolio?> GetByIdWithHoldingsAsync(Guid portfolioId, CancellationToken ct = default)
+        => await DbSet
+            .Include(p => p.Holdings)
+            .FirstOrDefaultAsync(p => p.Id == portfolioId, ct);
+
+    public async Task<IReadOnlyList<Guid>> GetPortfolioIdsWithSymbolHistoryAsync(
+        string symbol,
+        MarketType market,
+        CancellationToken ct = default)
+        => await Context.PortfolioTransactions
+            .AsNoTracking()
+            .Where(t => t.Symbol == symbol && t.MarketType == market)
+            .Select(t => t.PortfolioId)
+            .Distinct()
+            .ToListAsync(ct);
+
+    public async Task<decimal> GetNetQuantityAsOfAsync(
+        Guid portfolioId,
+        string symbol,
+        MarketType market,
+        DateTime cutoffUtc,
+        CancellationToken ct = default)
+    {
+        var rows = await Context.PortfolioTransactions
+            .AsNoTracking()
+            .Where(t => t.PortfolioId == portfolioId
+                && t.Symbol == symbol
+                && t.MarketType == market
+                && t.ExecutedAt <= cutoffUtc)
+            .Select(t => new { t.Side, t.Quantity })
+            .ToListAsync(ct);
+
+        return rows.Sum(t => t.Side == TxSide.Buy ? t.Quantity : -t.Quantity);
+    }
+
     public async Task<(IReadOnlyList<PortfolioTransaction> Items, int TotalCount)> GetTransactionsPagedAsync(
         Guid userId,
         int page,

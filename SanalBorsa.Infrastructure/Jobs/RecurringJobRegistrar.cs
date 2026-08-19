@@ -30,6 +30,15 @@ public static class RecurringJobRegistrar
             "35 18 * * *",
             new RecurringJobOptions { TimeZone = turkeyTz });
 
+        // 10:15 TR — bedelsiz/bedelli/temettü olaylarını hak eden portföylere uygular (bkz.
+        // ApplyCorporateActionsToPortfoliosJob üstündeki not: 09:30'daki seans kapanışından sonraki
+        // güvenli tampon)
+        jobs.AddOrUpdate<ApplyCorporateActionsToPortfoliosJob>(
+            "apply-corporate-actions-to-portfolios",
+            job => job.RunAsync(CancellationToken.None),
+            "15 10 * * *",
+            new RecurringJobOptions { TimeZone = turkeyTz });
+
         // 18:45 TR — BIST intraday sparkline (18:30 fiyat senkronundan sonra)
         jobs.AddOrUpdate<IntradaySparklineSyncJob>(
             "intraday-sparkline-sync-bist",
@@ -77,7 +86,7 @@ public static class RecurringJobRegistrar
         // ABD'nin gece yarısı öncesi tamamlanan senkronundan sonra gelir, mevsimden bağımsız güvenli)
         jobs.AddOrUpdate<TimeMachineLeadersJob>(
             "time-machine-leaders-compute",
-            job => job.RunAsync(CancellationToken.None),
+            job => job.RunAsync(CancellationToken.None, false),
             "0 2 * * *",
             new RecurringJobOptions { TimeZone = turkeyTz });
 
