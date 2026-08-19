@@ -71,13 +71,26 @@ public class StocksController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Recompute top gainers table (admin).</summary>
+    /// <summary>Recompute top gainers table (admin). sync=true: local'de güncel kodla senkron
+    /// çalışır (bkz. corporate-actions/sync üstündeki not — aynı local-vs-production gerekçesi).</summary>
     [HttpPost("top-gainers/compute")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public IActionResult ComputeTopGainers([FromQuery] string? marketType = null)
+    [ProducesResponseType(typeof(ComputeTopGainersResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ComputeTopGainers(
+        [FromQuery] string? marketType = null,
+        [FromQuery] bool sync = false,
+        CancellationToken ct = default)
     {
         var mt = ParseMarketType(marketType);
-        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(new ComputeTopGainersCommand(mt), CancellationToken.None));
+        var cmd = new ComputeTopGainersCommand(mt);
+
+        if (sync)
+        {
+            var result = await _mediator.Send(cmd, ct);
+            return Ok(result);
+        }
+
+        var jobId = _jobs.Enqueue<IMediator>(m => m.Send(cmd, CancellationToken.None));
 
         return Accepted(new { message = "Top gainers compute started.", marketType = mt.ToString(), jobId });
     }

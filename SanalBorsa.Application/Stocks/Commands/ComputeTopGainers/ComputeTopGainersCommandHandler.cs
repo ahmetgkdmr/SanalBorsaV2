@@ -93,12 +93,13 @@ public class ComputeTopGainersCommandHandler
                 // Getiri AdjustedClose (temettü/bölünme/bedelli düzeltilmiş) oranıyla hesaplanır —
                 // ham Close kullanılırsa split/bedelsiz yaşayan hisseler (ör. NVDA'nın 2024'teki
                 // 10:1 bölünmesi) gerçek getirisinin çok altında görünüp şampiyonluğu kaybediyordu.
-                // Gösterim için ham Close (StartPrice/EndPrice) korunuyor.
+                // StartPrice/EndPrice de aynı düzeltilmiş fiyattan — ham Close göstermek, getiriyle
+                // çelişen bir fiyat hareketi gösterip kullanıcıyı yanıltabilir (bkz. proje sohbeti).
                 var startAdj = start.AdjustedClose > 0m ? start.AdjustedClose : start.Close;
                 var endAdj = end.AdjustedClose > 0m ? end.AdjustedClose : end.Close;
 
                 var ret = (endAdj - startAdj) / startAdj * 100m;
-                ranked.Add((stockId, ret, start.Close, end.Close, start.Date));
+                ranked.Add((stockId, ret, startAdj, endAdj, start.Date));
             }
 
             var winner = ranked

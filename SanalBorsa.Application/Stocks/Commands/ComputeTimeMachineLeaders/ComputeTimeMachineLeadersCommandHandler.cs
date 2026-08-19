@@ -193,11 +193,16 @@ public class ComputeTimeMachineLeadersCommandHandler
                             continue;
                     }
 
+                    // StartPrice/EndPrice gösterim içindir — ham Close DEĞİL, ReturnPct'nin
+                    // hesaplandığı aynı (düzeltilmiş) fiyat kullanılır. Proje sohbeti: OSTIM gibi
+                    // çok sayıda bedelli/bedelsiz yaşamış hisselerde ham fiyat düşerken düzeltilmiş
+                    // getirinin pozitif olması "fiyat düştü ama para arttı" diye kafa karıştırıyordu
+                    // — ikisi tutarlı tek bir fiyat setinden gelmeli.
                     var candidate = new Candidate(
                         row.StockId,
                         byId[row.StockId].Symbol,
-                        row.Close,
-                        endRawPx,
+                        startRet,
+                        endRetPx,
                         returnPct);
                     buffer.Offer(candidate);
                     lossBuffer.Offer(candidate);
