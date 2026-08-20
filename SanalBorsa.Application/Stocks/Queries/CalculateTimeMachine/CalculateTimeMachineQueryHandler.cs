@@ -28,9 +28,12 @@ public class CalculateTimeMachineQueryHandler : IRequestHandler<CalculateTimeMac
         var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken, request.MarketType)
                     ?? throw new NotFoundException(nameof(Domain.Entities.Stock), symbol);
 
+        // 7 günlük geriye tampon: seçilen tarih hafta sonu/tatile denk gelirse (ör. Cumartesi),
+        // TimeMachineCalculator'ın son işlem gününe (Cuma kapanışı) geri dönebilmesi için — proje
+        // sohbeti: "hafta sonu seçiliyorsa Cuma'nın son kapanışı esas alınsın".
         var prices = await _uow.PriceHistories.GetByStockIdAsync(
             stock.Id,
-            from: request.Date.Date,
+            from: request.Date.Date.AddDays(-7),
             ct: cancellationToken);
 
         // Crypto ve endeks: corp action yok

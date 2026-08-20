@@ -133,15 +133,39 @@ public class ComputeTimeMachineLeadersCommandHandler
         if (scanFrom < HistoryFloor)
             scanFrom = HistoryFloor;
 
-        // ABD/Kripto satırları TL'ye çevrilirken USD/TRY paritesine ihtiyaç duyar (bkz. frontend
-        // altAdjustedReturnPct). Parite verisi kaynaklarımızda ~1989-11-07'den öncesine gitmiyor —
-        // bu tarihten önceki günler için "aynı gün ne alsaydın" satırı üretmenin bir anlamı yok,
-        // TL karşılığı zaten hesaplanamıyor. BIST zaten native TL olduğu için bu kısıt uygulanmaz.
-        if (category is TimeMachineCategory.UsStocks or TimeMachineCategory.Crypto)
+        // ABD/Kripto satırları TL bazında değerlendirilir — dolar cinsinden getiri (ör. bir hisse
+        // %75 düşmüş) TEK BAŞINA TL yatırımcısının gerçek sonucunu yansıtmaz; aynı dönemde dolar
+        // TL karşısında daha çok değer kazanmışsa TL bazında sonuç pozitif bile çıkabilir (proje
+        // sohbeti: PSKY örneği — $ bazında -%74,6 ama TL karşılığı 122→507 ₺, yani ARTMIŞ). "%"
+        // rozeti, sıralama (kazanan/kaybeden) VE TL sonucu (resultAmount) hep AYNI TL-bazlı
+        // getiriden gelmeli — üçü birbiriyle çelişmesin diye. Parite verisi kaynaklarımızda
+        // ~1989-11-07'den öncesine gitmiyor — bu tarihten önceki günler için "aynı gün ne alsaydın"
+        // satırı üretmenin bir anlamı yok, TL karşılığı zaten hesaplanamıyor. BIST zaten native TL
+        // olduğu için bu kısıt/dönüşüm uygulanmaz.
+        var needsTlComposition = category is TimeMachineCategory.UsStocks or TimeMachineCategory.Crypto;
+        DateTime[] usdTryDates = [];
+        decimal[] usdTryCloses = [];
+        decimal usdTryEnd = 0m;
+
+        if (needsTlComposition)
         {
             var usdTry = await _uow.Stocks.GetBySymbolAsync("USDTRY", ct);
             if (usdTry?.EarliestDataDate is { } parityFloor && scanFrom < parityFloor.Date)
                 scanFrom = parityFloor.Date;
+
+            if (usdTry is not null)
+            {
+                var usdTryPrices = await _uow.PriceHistories.GetByStockIdAsync(usdTry.Id, ct: ct);
+                var sorted = usdTryPrices.Where(p => p.Close > 0m).OrderBy(p => p.Date).ToList();
+                usdTryDates = sorted.Select(p => p.Date.Date).ToArray();
+                usdTryCloses = sorted.Select(p => p.Close).ToArray();
+                var endIdx = OnOrBeforeIndex(usdTryDates, endDate);
+                if (endIdx >= 0)
+                    usdTryEnd = usdTryCloses[endIdx];
+            }
+
+            if (usdTryEnd <= 0m)
+                return await EmptyAsync(category, sw, "USD/TRY parite verisi yok — TL karşılığı hesaplanamıyor.", ct);
         }
 
         var rows = new List<TimeMachineLeader>();
@@ -191,6 +215,24 @@ public class ComputeTimeMachineLeadersCommandHandler
                         if (Math.Sign(returnPct) != Math.Sign(rawReturnPct) &&
                             Math.Abs(returnPct) > 20m && Math.Abs(rawReturnPct) > 20m)
                             continue;
+                    }
+
+                    // "%" rozeti, kazanan/kaybeden sıralaması VE TL sonucu (resultAmount) hep AYNI
+                    // TL-bazlı getiriden gelsin diye dolar getirisini o günkü/bugünkü USD/TRY
+                    // kuruyla TL'ye çeviriyoruz (bkz. yukarıdaki "needsTlComposition" notu).
+                    if (needsTlComposition)
+                    {
+                        var usdTryIdx = OnOrBeforeIndex(usdTryDates, date);
+                        if (usdTryIdx < 0)
+                            continue;
+
+                        var usdTryStart = usdTryCloses[usdTryIdx];
+                        if (usdTryStart <= 0m)
+                            continue;
+
+                        var tlStart = startRet * usdTryStart;
+                        var tlEnd = endRetPx * usdTryEnd;
+                        returnPct = (tlEnd - tlStart) / tlStart * 100m;
                     }
 
                     // StartPrice/EndPrice gösterim içindir — ham Close DEĞİL, ReturnPct'nin
@@ -375,6 +417,17 @@ public class ComputeTimeMachineLeadersCommandHandler
         await _uow.TimeMachineLeaders.ReplaceCategoryAsync(category, [], ct);
         _logger.LogWarning("TimeMachineLeaders {Category} atlandı: {Error}", category, error);
         return new TimeMachineCategoryResult(category, 0, 0, null, null, sw.ElapsedMilliseconds, error);
+    }
+
+    /// <summary>Artan sıralı <paramref name="sortedDates"/> içinde <paramref name="target"/>'a eşit
+    /// veya ondan önceki en son tarihin index'i (yoksa -1) — USD/TRY kurunu, her gün için ayrı
+    /// sorgu atmadan, tek geçişte O(log n) arayabilmek için.</summary>
+    private static int OnOrBeforeIndex(DateTime[] sortedDates, DateTime target)
+    {
+        var idx = Array.BinarySearch(sortedDates, target);
+        if (idx >= 0) return idx;
+        var insertionPoint = ~idx;
+        return insertionPoint - 1;
     }
 
     private sealed record ParityTrack(

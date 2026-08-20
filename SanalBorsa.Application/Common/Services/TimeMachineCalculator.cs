@@ -74,7 +74,12 @@ public static class TimeMachineCalculator
                 $"Veri {earliest:dd.MM.yyyy} tarihinden başlıyor. Daha eski bir tarih seç.");
         }
 
-        var buyEntry = FindOnOrAfter(orderedPrices, buyDate);
+        // Seçilen gün işlem günü değilse (hafta sonu/tatil) İLERİYE değil GERİYE bakılır — proje
+        // sohbeti: "hafta sonu seçiliyorsa Cuma'nın son kapanışı esas alınsın" — Pazartesi'yi
+        // beklemek yerine, seçilen tarihte zaten elindeymiş gibi son bilinen kapanış kullanılır.
+        // (Çağıran taraf — CalculateTimeMachineQueryHandler — fiyatları birkaç gün geriye tampon
+        // bırakarak çekiyor, aksi halde bu arama hiç veri bulamazdı.)
+        var buyEntry = FindOnOrBefore(orderedPrices, buyDate) ?? FindOnOrAfter(orderedPrices, buyDate);
         if (buyEntry is null)
             return Error(symbol, mode, buyDate, "Seçilen tarihte işlem günü bulunamadı.");
 
@@ -395,6 +400,14 @@ public static class TimeMachineCalculator
         IReadOnlyList<StockPriceHistory> prices,
         DateTime date)
         => prices.FirstOrDefault(p => p.Date.Date >= date.Date);
+
+    /// <summary>Seçilen tarihe eşit veya ondan önceki SON işlem gününü bulur (hafta sonu/tatil
+    /// seçildiğinde "Cuma'nın kapanışı" mantığı için) — <paramref name="prices"/> tarihe göre
+    /// artan sıralı geldiğinden, bu koşulu sağlayan SON eleman aranan gündür.</summary>
+    private static StockPriceHistory? FindOnOrBefore(
+        IReadOnlyList<StockPriceHistory> prices,
+        DateTime date)
+        => prices.LastOrDefault(p => p.Date.Date <= date.Date);
 
     private static decimal RoundLots(decimal lots)
         => Math.Round(lots, 6, MidpointRounding.AwayFromZero);
