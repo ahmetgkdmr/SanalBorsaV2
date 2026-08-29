@@ -352,7 +352,7 @@ public static class TimeMachineCalculator
         // cümle çıkıyordu). Bu yüzden DCA'da toplam ayrı, "(toplamda X yatırmış olurdun)" şeklinde
         // parantez içinde; aylık tutarın kendisi (asgari ücret bazlıysa yıldan yıla değiştiği için)
         // hiç sayı olarak iddia edilmiyor.
-        var investedLabel = FormatOldTlAware(invested, buyDate);
+        var investedLabel = FormatOldTlAware(invested, buyDate, market);
         var wageContext = isWageBased && market == MarketType.Bist
             ? "bir asgari ücret olan "
             : "";
@@ -386,14 +386,20 @@ public static class TimeMachineCalculator
     /// sohbeti: "1993 asgari ücreti 1,56 ₺'ydi" demek yanıltıcı, o dönem gerçekte "1.563.473 TL"
     /// yazıyordu, 1,56 ₺ sadece bugünkü fiyat serisiyle aynı birimde göstermek için sonradan
     /// bölünmüş bir rakam.
+    /// Bu redenominasyon SADECE BIST (Türk Lirası) için anlamlı — ABD/kripto'da tutar zaten USD,
+    /// Lira'nın 2005 katsayısıyla hiçbir ilgisi yok (aksi halde ~435 bin $ gibi bir tutar "435 milyar
+    /// eski TL" gibi saçma bir cümleye dönüşüyordu).
     /// </summary>
-    private static string FormatOldTlAware(decimal newTlAmount, DateTime date)
+    private static string FormatOldTlAware(decimal amount, DateTime date, MarketType market)
     {
-        if (date >= RedenominationDate)
-            return $"{FormatMoney(newTlAmount)} ₺";
+        if (market != MarketType.Bist)
+            return $"{FormatMoney(amount)} $";
 
-        var oldTlAmount = newTlAmount * 1_000_000m;
-        return $"{FormatMoney(oldTlAmount)} TL ({FormatMoney(newTlAmount)} ₺ Yeni TL karşılığı)";
+        if (date >= RedenominationDate)
+            return $"{FormatMoney(amount)} ₺";
+
+        var oldTlAmount = amount * 1_000_000m;
+        return $"{FormatMoney(oldTlAmount)} TL ({FormatMoney(amount)} ₺ Yeni TL karşılığı)";
     }
 
     private static StockPriceHistory? FindOnOrAfter(
