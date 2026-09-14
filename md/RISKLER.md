@@ -2,7 +2,7 @@
 
 > Backend + frontend taraması sırasında bulunan güvenlik/veri/mimari riskleri. Kaynak proje özetleri:
 > `SanalBorsa/md/OZET.md`, `sanal-borsa-ui/md/OZET.md`.
-> Son güncelleme: 2026-09-07 (tam denetim: madde durumları doğrulandı, çözülenler aşağıya taşındı).
+> Son güncelleme: 2026-09-14 (secret dışındaki tüm öneriler uygulandı).
 
 ## 🔴 Kritik — açık
 
@@ -31,31 +31,31 @@ Bu secret'lar git **geçmişinde** duruyor — dosyayı şimdi düzeltmek yetmez
 
 ## 🟠 Orta — açık
 
-### 3. Refresh token iptal edilemiyor
-Refresh token DB'de tutulmuyor, stateless JWT (`secret + "_refresh"` ile imzalı). Sızarsa `RefreshTokenDays` (30 gün) boyunca geçerli kalır; logout onu iptal etmez.
-**Yapılması gereken:** `RefreshToken` tablosu (jti, userId, expiresAt, revokedAt) + logout'ta iptal.
-
-### 4. Uygulama katmanında hiç validator yok
-FluentValidation ve `ValidationBehavior` pipeline'ı kurulu ama **sıfır** `AbstractValidator` var. Doğrulama handler'ların içine `InvalidOperationException` olarak dağılmış durumda. Çalışıyor ama kural tek yerde toplanmıyor ve hata biçimi tutarsız.
-
-### 5. `InvalidOperationException` → 400 toptan eşlemesi
-`ExceptionHandlingMiddleware` bu tipi iş kuralı ihlali sayıp `ex.Message`'ı istemciye dönüyor. Framework kaynaklı `InvalidOperationException`'lar (EF, LINQ "Sequence contains no elements") da 400 olarak dönüp iç detay sızdırabilir.
-**Yapılması gereken:** Kendi `BusinessRuleException`'ını tanımla, bu catch'i ona daralt.
-
-### 6. Liderlik tablosu gerçek veriye bağlı değil
-`/leaderboard` hâlâ `leaderboard.mock.ts`'ten üretiliyor; backend'de besleyecek endpoint yok. **2026-09-07'de sayfaya "örnek veri" uyarısı eklendi** (yanıltıcı olmaktan çıktı) ama gerçek sıralama hâlâ eksik. `ShowTradeHistoryPublic` alanı ve gizlilik toggle'ı zaten hazır, sadece sorgu yazılacak.
+_Bu başlıkta açık madde kalmadı._
 
 ## 🟡 Düşük — açık
 
-### 7. Token'lar `localStorage`'da düz JSON
+### 3. Token'lar `localStorage`'da düz JSON
 XSS senaryosunda access + refresh birlikte çalınabilir. SPA'lar için yaygın trade-off; bilinçli kabul ediliyorsa sorun değil.
-
-### 8. Otomatik test yok
-Frontend'de 1 iskelet spec (`app.spec.ts`), backend'de **hiç** test yok. `TimeMachineCalculator` (557 satır para matematiği), portföy alım/satım ve kurumsal işlem uygulaması test edilmiyor — bu alanlarda geçmişte gerçek hatalar çıktı (framing/kur karışıklıkları). En azından bu üçü için birim testi değerli.
 
 ---
 
 ## ✅ Çözülenler
+
+### 2026-09-14 (öneri paketi)
+
+| Ne | Nasıl |
+|---|---|
+| **Refresh token iptal edilemiyordu** — sızan token 30 gün geçerli kalıyor, çıkış onu iptal etmiyordu | `RefreshTokens` tablosu (jti bazlı, token'ın kendisi saklanmıyor). Yenilemede **rotasyon**: yeni çift üretilip eski iptal ediliyor, aynı token ikinci kez kullanılırsa reddedilip loglanıyor. `POST /api/auth/logout` tüm aktif token'ları iptal ediyor. Süresi geçenler her gece 04:00'te siliniyor |
+| **Refresh akışı zaten bozukmuş** (bu iş sırasında ortaya çıktı) | `JwtSecurityTokenHandler` varsayılan olarak `sub` claim'ini `ClaimTypes.NameIdentifier`'a eşliyor; `FindFirst("sub")` null dönüyordu, yani yenileme sessizce başarısız olup kullanıcıyı çıkışa düşürüyordu. 24 saatlik token ömrü bunu maskelemiş. `MapInboundClaims = false` ile düzeltildi |
+| **`InvalidOperationException` → 400 toptan eşlemesi** iç hata metinlerini sızdırıyordu | `BusinessRuleException` eklendi; 40 kullanıma-dönük fırlatma ona çevrildi. Framework kaynaklı olanlar artık 500 + genel metin |
+| **Uygulama katmanında hiç validator yoktu** | 11 validator (6 alım/satım + 5 kimlik). Biçim doğrulaması validator'da, durum gerektirenler (bakiye, seans, benzersizlik) handler'da. Kullanıcı adı deseni `ValidationRules`'ta tekilleştirildi; tek emir üst sınırı eklendi |
+| **Liderlik tablosu uydurma veri gösteriyordu** | `GET /api/leaderboard` + `GET /api/leaderboard/{username}/trades`. Portföy değeri sunucuda canlı fiyatlarla hesaplanıyor (USD varlıklar kurla çevriliyor), 60 sn önbellek, N+1 yok. Gizlilik ayarına saygılı. `leaderboard.mock.ts` silindi |
+| **Hiç test yoktu** | `SanalBorsa.Tests` (xUnit + NSubstitute + FluentAssertions) — **69 test**: zaman makinesi para matematiği, alım/satım iş kuralları, liderlik para birimi çevrimi, doğrulayıcılar, entity→DTO dönüşümleri, seans saatleri |
+| Seans saati testlerini imkânsız kılan statik zaman bağımlılığı | `IClock` soyutlaması; `EnsureOpen(utcNow)` parametre alıyor. Testler artık günün saatinden bağımsız |
+| Angular hâlâ zone.js tabanlı değişiklik algılamadaydı | `provideZonelessChangeDetection()`. Geçiş öncesi tüm `setTimeout`/`setInterval` kullanımları tarandı; `market.page.ts`'teki `searchFocused` düz alan olduğu için signal'a çevrildi (aksi hâlde arama önerileri güncellenmezdi) |
+| God component'ler (2120 / 1615 / 1249 satır) | Inline stiller 9 bileşenden ayrı `.css` dosyalarına çıkarıldı (~3.170 satır). Saf canvas yardımcıları (`roundRectPath`, `wrapTextLines`, `downloadBlob`) `core/utils/canvas.util.ts`'e taşındı. En büyük dosya 2120 → 1353 satır |
+| Backend README yoktu | `README.md`: kurulum, katman yapısı, yapılandırma tablosu, kimlik akışı, operasyonel uçlar, migration, test, veri kaynakları, dağıtım |
 
 ### 2026-09-07 (tam denetim)
 
