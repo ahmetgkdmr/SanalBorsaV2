@@ -1,10 +1,11 @@
-using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using SanalBorsa.Application.Auth.Commands.LoginWithFirebase;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Application.Common;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Application.Auth.Commands.RegisterWithPassword;
 
@@ -18,10 +19,6 @@ public record RegisterWithPasswordCommand(
 public class RegisterWithPasswordCommandHandler
     : IRequestHandler<RegisterWithPasswordCommand, LoginResult>
 {
-    private static readonly Regex UsernameRx = new(
-        @"^[a-zA-Z][a-zA-Z0-9_]{2,31}$",
-        RegexOptions.Compiled);
-
     private readonly IUnitOfWork _uow;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtService _jwt;
@@ -44,21 +41,21 @@ public class RegisterWithPasswordCommandHandler
         CancellationToken cancellationToken)
     {
         var username = (request.Username ?? string.Empty).Trim();
-        if (!UsernameRx.IsMatch(username))
+        if (!ValidationRules.Username.IsMatch(username))
         {
-            throw new InvalidOperationException(
+            throw new BusinessRuleException(
                 "Kullanıcı adı 3–32 karakter olmalı; harfle başlamalı; sadece harf, rakam ve alt çizgi.");
         }
 
         var password = request.Password ?? string.Empty;
         if (password.Length < 6)
-            throw new InvalidOperationException("Şifre en az 6 karakter olmalı.");
+            throw new BusinessRuleException("Şifre en az 6 karakter olmalı.");
 
         if (!string.Equals(password, request.PasswordConfirm, StringComparison.Ordinal))
-            throw new InvalidOperationException("Şifreler eşleşmiyor.");
+            throw new BusinessRuleException("Şifreler eşleşmiyor.");
 
         if (await _uow.Users.UsernameExistsAsync(username, cancellationToken))
-            throw new InvalidOperationException("Bu kullanıcı adı alınmış. Başka bir tane dene.");
+            throw new BusinessRuleException("Bu kullanıcı adı alınmış. Başka bir tane dene.");
 
         var display = string.IsNullOrWhiteSpace(request.DisplayName)
             ? username
@@ -92,7 +89,7 @@ public class RegisterWithPasswordCommandHandler
         _logger.LogInformation("Local user registered: {Username}", user.Username);
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(user.Id, cancellationToken);
-        var tokens = _jwt.Generate(user);
+        var tokens = await _jwt.GenerateAsync(user, cancellationToken);
         return new LoginResult(
             tokens.AccessToken,
             tokens.RefreshToken,

@@ -1,9 +1,9 @@
-using AutoMapper;
 using MediatR;
 using Microsoft.Extensions.Caching.Memory;
 using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Application.Mappings;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
 
@@ -14,18 +14,15 @@ public class GetUsStocksQueryHandler : IRequestHandler<GetUsStocksQuery, PagedRe
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
     private readonly IUnitOfWork _uow;
-    private readonly IMapper _mapper;
     private readonly IMemoryCache _cache;
     private readonly MarketDataCacheVersion _cacheVersion;
 
     public GetUsStocksQueryHandler(
         IUnitOfWork uow,
-        IMapper mapper,
         IMemoryCache cache,
         MarketDataCacheVersion cacheVersion)
     {
         _uow = uow;
-        _mapper = mapper;
         _cache = cache;
         _cacheVersion = cacheVersion;
     }
@@ -66,7 +63,7 @@ public class GetUsStocksQueryHandler : IRequestHandler<GetUsStocksQuery, PagedRe
         var items = ordered
             .Select(stock =>
             {
-                var dto = _mapper.Map<StockDto>(stock) with
+                var dto = stock.ToDto() with
                 {
                     MarketType = "us",
                     EarliestDataDate = EarliestDateClamp.Apply(stock.EarliestDataDate, parityFloor),

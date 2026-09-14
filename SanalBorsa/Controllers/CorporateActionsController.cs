@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.CorporateActions.Queries.GetCorporateActions;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.SyncCorporateActionsFromKap;
@@ -39,6 +40,7 @@ public class CorporateActionsController : ControllerBase
     /// Replaces this stock's corporate actions with KAP public-disclosure parse results
     /// (bedelsiz, bedelli + rüçhan fiyatı, nakit temettü).
     /// </summary>
+    [AdminApiKey]
     [HttpPost("sync-kap")]
     [ProducesResponseType(typeof(SyncCorporateActionsFromKapResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

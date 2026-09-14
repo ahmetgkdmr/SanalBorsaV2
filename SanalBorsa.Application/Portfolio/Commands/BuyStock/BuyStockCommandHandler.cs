@@ -1,5 +1,6 @@
 using MediatR;
 using SanalBorsa.Application.Common;
+using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Domain.Entities;
@@ -10,10 +11,12 @@ namespace SanalBorsa.Application.Portfolio.Commands.BuyStock;
 public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, PortfolioDto>
 {
     private readonly IUnitOfWork _uow;
+    private readonly IClock _clock;
 
-    public BuyStockCommandHandler(IUnitOfWork uow)
+    public BuyStockCommandHandler(IUnitOfWork uow, IClock clock)
     {
         _uow = uow;
+        _clock = clock;
     }
 
     public Task<PortfolioDto> Handle(BuyStockCommand request, CancellationToken cancellationToken)
@@ -21,10 +24,10 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
 
     private async Task<PortfolioDto> ExecuteAsync(BuyStockCommand request, CancellationToken cancellationToken)
     {
-        BistTradingHours.EnsureOpen();
+        BistTradingHours.EnsureOpen(_clock.UtcNow);
 
         if (request.Lots <= 0)
-            throw new InvalidOperationException("Lot sayısı 0'dan büyük olmalıdır.");
+            throw new BusinessRuleException("Lot sayısı 0'dan büyük olmalıdır.");
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);
@@ -34,20 +37,20 @@ public class BuyStockCommandHandler : IRequestHandler<BuyStockCommand, Portfolio
             ?? throw new NotFoundException("Stock", request.Symbol);
 
         if (stock.TradingHaltReason is not null)
-            throw new InvalidOperationException($"{stock.Symbol} hissesi için {stock.TradingHaltReason}");
+            throw new BusinessRuleException($"{stock.Symbol} hissesi için {stock.TradingHaltReason}");
 
         var snapshot = await _uow.PriceHistories.GetMarketSnapshotsAsync(
             [stock.Id], sparklineDays: 1, ct: cancellationToken);
 
         if (!snapshot.TryGetValue(stock.Id, out var snap) || snap.LastClose is null)
-            throw new InvalidOperationException($"{request.Symbol} için güncel fiyat bulunamadı.");
+            throw new BusinessRuleException($"{request.Symbol} için güncel fiyat bulunamadı.");
 
         var price = snap.LastClose.Value;
         var qty = (decimal)request.Lots;
         var total = price * qty;
 
         if (total > portfolio.Cash)
-            throw new InvalidOperationException("Yetersiz bakiye.");
+            throw new BusinessRuleException("Yetersiz bakiye.");
 
         portfolio.Cash -= total;
 

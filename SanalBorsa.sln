@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SanalBorsa.Application", "S
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SanalBorsa.Infrastructure", "SanalBorsa.Infrastructure\SanalBorsa.Infrastructure.csproj", "{282F79BA-5C98-458C-92AF-25E55BF98E65}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SanalBorsa.Tests", "SanalBorsa.Tests\SanalBorsa.Tests.csproj", "{57349093-F7D7-40C1-9F17-9B322D963960}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{282F79BA-5C98-458C-92AF-25E55BF98E65}.Release|x64.Build.0 = Release|Any CPU
 		{282F79BA-5C98-458C-92AF-25E55BF98E65}.Release|x86.ActiveCfg = Release|Any CPU
 		{282F79BA-5C98-458C-92AF-25E55BF98E65}.Release|x86.Build.0 = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|x64.Build.0 = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Debug|x86.Build.0 = Debug|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|Any CPU.Build.0 = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|x64.ActiveCfg = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|x64.Build.0 = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|x86.ActiveCfg = Release|Any CPU
+		{57349093-F7D7-40C1-9F17-9B322D963960}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

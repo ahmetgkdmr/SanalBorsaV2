@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +67,26 @@ try
 
     builder.Services.AddAuthorization();
 
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    // Kimlik doğrulama uçları aksi hâlde sınırsız denemeye açıktı: parola deneme (brute-force)
+    // ve kullanıcı adı sorgulayarak hesap keşfi mümkündü. IP başına sabit pencere yeterli —
+    // dağıtık bir saldırıyı durdurmaz ama tek kaynaklı otomatik denemeleri kesip loglanabilir
+    // hâle getirir. Sınır aşılınca kuyruğa alınmaz, doğrudan 429 döner.
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        options.AddPolicy(RateLimitPolicies.Auth, http =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+    });
+
     // ── CORS ─────────────────────────────────────────────────────────────────
     var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
         ??
@@ -76,7 +97,11 @@ try
             "http://127.0.0.1:5500",
             "http://localhost:5500",
         ];
-    var corsAllowAny = builder.Configuration.GetValue("Cors:AllowAnyOrigin", false);
+    // "Herhangi bir origin" + AllowCredentials birleşimi, kimlik doğrulamalı isteklerin HERHANGİ
+    // bir siteden yapılabilmesi demek — production'da kabul edilemez. Bayrak yanlışlıkla açılsa
+    // bile üretimde yok sayılır; sadece geliştirme/staging'de geçerlidir.
+    var corsAllowAny = builder.Configuration.GetValue("Cors:AllowAnyOrigin", false)
+                       && !builder.Environment.IsProduction();
 
     builder.Services.AddCors(options =>
     {
@@ -185,6 +210,8 @@ try
     // Render TLS’i dışarıda sonlandırır; konteyner HTTP:8080 dinler
     if (!app.Environment.IsProduction())
         app.UseHttpsRedirection();
+
+    app.UseRateLimiter();
 
     app.UseAuthentication();
     app.UseAuthorization();

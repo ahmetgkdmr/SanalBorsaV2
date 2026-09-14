@@ -1,7 +1,7 @@
-using AutoMapper;
 using MediatR;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Application.Mappings;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.CorporateActions.Queries.GetCorporateActions;
@@ -10,12 +10,10 @@ public class GetCorporateActionsQueryHandler
     : IRequestHandler<GetCorporateActionsQuery, IReadOnlyList<CorporateActionDto>>
 {
     private readonly IUnitOfWork _uow;
-    private readonly IMapper _mapper;
 
-    public GetCorporateActionsQueryHandler(IUnitOfWork uow, IMapper mapper)
+    public GetCorporateActionsQueryHandler(IUnitOfWork uow)
     {
         _uow = uow;
-        _mapper = mapper;
     }
 
     public async Task<IReadOnlyList<CorporateActionDto>> Handle(
@@ -31,7 +29,7 @@ public class GetCorporateActionsQueryHandler
             : await _uow.CorporateActions.GetByStockIdAsync(stock.Id, cancellationToken);
 
         return actions
-            .Select(a => _mapper.Map<CorporateActionDto>(a) with { Symbol = stock.Symbol })
+            .Select(a => a.ToDto() with { Symbol = stock.Symbol })
             .ToList();
     }
 }

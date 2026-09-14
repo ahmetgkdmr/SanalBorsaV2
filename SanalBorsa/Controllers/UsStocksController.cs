@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.Common.Models;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Stocks.Commands.RefreshIntradaySparkline;
@@ -45,6 +46,7 @@ public class UsStocksController : ControllerBase
     }
 
     /// <summary>Pilot sembollerini (UsStockSymbolSeed) Stock satırına çevirir (idempotent).</summary>
+    [AdminApiKey]
     [HttpPost("universe/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncUniverse()
@@ -56,6 +58,7 @@ public class UsStocksController : ControllerBase
     /// <summary>
     /// Günlük OHLC + AdjustedClose senkronu (Yahoo Finance). full=true tüm geçmişi yeniden çeker.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("sync-prices")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncPrices(
@@ -81,6 +84,7 @@ public class UsStocksController : ControllerBase
     /// sapan hisseleri TradingView'den yeniden çeker, hâlâ sapıyorsa loglar (manuel inceleme).
     /// Yüzlerce hisse × tam geçmiş olduğu için uzun sürer — arka planda çalışır.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("price-audit")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> PriceAudit(
@@ -107,6 +111,7 @@ public class UsStocksController : ControllerBase
     }
 
     /// <summary>Temettü + split senkronu (Yahoo Finance). Sadece ekler/dedupe eder, silmez.</summary>
+    [AdminApiKey]
     [HttpPost("corporate-actions/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncCorporateActions([FromQuery] string? symbol = null)
@@ -121,6 +126,7 @@ public class UsStocksController : ControllerBase
     /// Düzeltilmiş kapanış (split + temettü dahil toplam getiri) senkronu — Zaman Makinesi'nin
     /// para hesabı artık bu seriyi kullanıyor (bkz. TimeMachineCalculator).
     /// </summary>
+    [AdminApiKey]
     [HttpPost("adjusted-closes/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(SyncUsAdjustedClosesResult), StatusCodes.Status200OK)]
@@ -144,6 +150,7 @@ public class UsStocksController : ControllerBase
     }
 
     /// <summary>Önceki tam seans gününün 15dk sparkline bar'larını yeniler (normalde 16:05 ET cron'u).</summary>
+    [AdminApiKey]
     [HttpPost("intraday-sparkline/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncIntradaySparkline()

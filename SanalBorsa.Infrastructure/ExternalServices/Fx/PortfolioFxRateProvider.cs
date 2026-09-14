@@ -1,5 +1,6 @@
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Infrastructure.ExternalServices.Fx;
 
@@ -32,7 +33,7 @@ public sealed class PortfolioFxRateProvider : IPortfolioFxRateProvider
                 return latest.Close;
         }
 
-        throw new InvalidOperationException(
+        throw new BusinessRuleException(
             "[FX_UNAVAILABLE] Anlık USD/TRY kuru şu an alınamıyor. Lütfen birazdan tekrar deneyin.");
     }
 }

@@ -1,5 +1,6 @@
 using MediatR;
 using SanalBorsa.Application.Common.Interfaces;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Application.Crypto.Queries.PreviewCryptoTrade;
 
@@ -25,10 +26,10 @@ public class PreviewCryptoTradeQueryHandler
         if (side == "sell")
         {
             if (request.Quantity is null or <= 0)
-                throw new InvalidOperationException("Satış için quantity gerekli.");
+                throw new BusinessRuleException("Satış için quantity gerekli.");
             return _crypto.PreviewSellAsync(request.Symbol, request.Quantity.Value, cancellationToken);
         }
 
-        throw new InvalidOperationException("Side 'buy' veya 'sell' olmalıdır.");
+        throw new BusinessRuleException("Side 'buy' veya 'sell' olmalıdır.");
     }
 }

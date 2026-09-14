@@ -19,6 +19,7 @@ public class UnitOfWork : IUnitOfWork
     private ITopGainerRepository?          _topGainers;
     private ITimeMachineLeaderRepository?  _timeMachineLeaders;
     private INotificationRepository?       _notifications;
+    private IRefreshTokenRepository?       _refreshTokens;
 
     public UnitOfWork(AppDbContext context)
     {
@@ -34,6 +35,7 @@ public class UnitOfWork : IUnitOfWork
     public ITopGainerRepository         TopGainers         => _topGainers         ??= new TopGainerRepository(_context);
     public ITimeMachineLeaderRepository TimeMachineLeaders => _timeMachineLeaders ??= new TimeMachineLeaderRepository(_context);
     public INotificationRepository      Notifications      => _notifications      ??= new NotificationRepository(_context);
+    public IRefreshTokenRepository      RefreshTokens      => _refreshTokens      ??= new RefreshTokenRepository(_context);
 
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {

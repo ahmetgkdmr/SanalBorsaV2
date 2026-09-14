@@ -5,6 +5,7 @@ using SanalBorsa.Application.Auth.Commands.LoginWithFirebase;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Application.Auth.Commands.CompleteRegistration;
 
@@ -45,7 +46,7 @@ public class CompleteRegistrationCommandHandler
         var username = (request.Username ?? string.Empty).Trim();
         if (!UsernameRx.IsMatch(username))
         {
-            throw new InvalidOperationException(
+            throw new BusinessRuleException(
                 "Kullanıcı adı 3–32 karakter olmalı; harfle başlamalı; sadece harf, rakam ve alt çizgi.");
         }
 
@@ -57,7 +58,7 @@ public class CompleteRegistrationCommandHandler
         {
             // Zaten kayıtlıysa doğrudan login dön
             var portfolioExisting = await _uow.Portfolios.GetByUserIdAsync(existing.Id, cancellationToken);
-            var tokensExisting = _jwt.Generate(existing);
+            var tokensExisting = await _jwt.GenerateAsync(existing, cancellationToken);
             return new LoginResult(
                 tokensExisting.AccessToken,
                 tokensExisting.RefreshToken,
@@ -66,7 +67,7 @@ public class CompleteRegistrationCommandHandler
         }
 
         if (await _uow.Users.UsernameExistsAsync(username, cancellationToken))
-            throw new InvalidOperationException("Bu kullanıcı adı alınmış. Başka bir tane dene.");
+            throw new BusinessRuleException("Bu kullanıcı adı alınmış. Başka bir tane dene.");
 
         var display = string.IsNullOrWhiteSpace(request.DisplayName)
             ? username
@@ -108,7 +109,7 @@ public class CompleteRegistrationCommandHandler
             user.Username, claims.Uid, claims.Provider);
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(user.Id, cancellationToken);
-        var tokens = _jwt.Generate(user);
+        var tokens = await _jwt.GenerateAsync(user, cancellationToken);
         return new LoginResult(
             tokens.AccessToken,
             tokens.RefreshToken,

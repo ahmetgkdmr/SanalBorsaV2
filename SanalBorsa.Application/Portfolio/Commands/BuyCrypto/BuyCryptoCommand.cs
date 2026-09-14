@@ -50,12 +50,12 @@ public class BuyCryptoCommandHandler : IRequestHandler<BuyCryptoCommand, CryptoT
             request.Symbol, quoteUsd, request.Quantity, cancellationToken);
 
         if (!fill.FullyFilled || fill.FilledQuantity <= 0)
-            throw new InvalidOperationException(
+            throw new BusinessRuleException(
                 "Derinlik yetersiz — emir tamamen doldurulamadı. Daha küçük tutar deneyin.");
 
         var tryEquivalent = fill.Total * rate;
         if (tryEquivalent > portfolio.Cash)
-            throw new InvalidOperationException("Yetersiz bakiye.");
+            throw new BusinessRuleException("Yetersiz bakiye.");
 
         portfolio.Cash -= tryEquivalent;
 

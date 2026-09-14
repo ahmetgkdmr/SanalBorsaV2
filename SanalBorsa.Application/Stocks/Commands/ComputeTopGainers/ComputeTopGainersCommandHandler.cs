@@ -5,6 +5,7 @@ using SanalBorsa.Application.Common.Seeds;
 using SanalBorsa.Domain.Entities;
 using SanalBorsa.Domain.Enums;
 using SanalBorsa.Domain.Interfaces;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Application.Stocks.Commands.ComputeTopGainers;
 
@@ -66,7 +67,7 @@ public class ComputeTopGainersCommandHandler
         var byId = stocks.ToDictionary(s => s.Id);
 
         var asOf = await _uow.PriceHistories.GetLatestTradingDateForMarketAsync(market, cancellationToken)
-            ?? throw new InvalidOperationException($"{market} için fiyat geçmişi bulunamadı.");
+            ?? throw new BusinessRuleException($"{market} için fiyat geçmişi bulunamadı.");
 
         var endCloses = await _uow.PriceHistories.GetClosesOnOrBeforeAsync(
             stockIds, asOf, cancellationToken);

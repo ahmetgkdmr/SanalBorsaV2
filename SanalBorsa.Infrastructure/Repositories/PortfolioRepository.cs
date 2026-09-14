@@ -9,6 +9,14 @@ public class PortfolioRepository : BaseRepository<UserPortfolio>, IPortfolioRepo
 {
     public PortfolioRepository(AppDbContext context) : base(context) { }
 
+    public async Task<IReadOnlyList<UserPortfolio>> GetAllWithUserAndHoldingsAsync(CancellationToken ct = default)
+        => await DbSet
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.Holdings)
+            .AsSplitQuery()
+            .ToListAsync(ct);
+
     public async Task<UserPortfolio?> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
         => await DbSet
             .Include(p => p.Holdings)

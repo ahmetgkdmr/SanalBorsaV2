@@ -1,7 +1,7 @@
-using AutoMapper;
 using MediatR;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Application.Mappings;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.PriceHistories.Queries.GetPriceHistory;
@@ -9,12 +9,10 @@ namespace SanalBorsa.Application.PriceHistories.Queries.GetPriceHistory;
 public class GetPriceHistoryQueryHandler : IRequestHandler<GetPriceHistoryQuery, IReadOnlyList<PriceHistoryDto>>
 {
     private readonly IUnitOfWork _uow;
-    private readonly IMapper _mapper;
 
-    public GetPriceHistoryQueryHandler(IUnitOfWork uow, IMapper mapper)
+    public GetPriceHistoryQueryHandler(IUnitOfWork uow)
     {
         _uow = uow;
-        _mapper = mapper;
     }
 
     public async Task<IReadOnlyList<PriceHistoryDto>> Handle(
@@ -30,6 +28,6 @@ public class GetPriceHistoryQueryHandler : IRequestHandler<GetPriceHistoryQuery,
             request.To,
             cancellationToken);
 
-        return records.Select(_mapper.Map<PriceHistoryDto>).ToList();
+        return records.Select(x => x.ToDto()).ToList();
     }
 }

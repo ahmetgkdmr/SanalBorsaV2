@@ -16,6 +16,13 @@ public static class RecurringJobRegistrar
     {
         var turkeyTz = ResolveTurkeyTimeZone();
 
+        // 04:00 TR — süresi geçmiş yenileme token'lerini temizler (tablo sınırsız büyümesin)
+        jobs.AddOrUpdate<ExpiredRefreshTokenCleanupJob>(
+            "expired-refresh-token-cleanup",
+            job => job.RunAsync(CancellationToken.None),
+            "0 4 * * *",
+            new RecurringJobOptions { TimeZone = turkeyTz });
+
         // 18:30 TR — metadata + BIST ham günlük fiyat (TradingView WS)
         jobs.AddOrUpdate<TradingViewPriceSyncJob>(
             "tradingview-price-sync",

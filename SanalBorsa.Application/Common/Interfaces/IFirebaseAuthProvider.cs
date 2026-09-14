@@ -13,11 +13,6 @@ public interface IFirebaseAuthProvider
     /// </summary>
     Task<FirebaseTokenClaims?> VerifyIdTokenAsync(string idToken, CancellationToken ct = default);
 
-    /// <summary>
-    /// Firebase'deki TÜM kullanıcıları siler (toplu, sayfalı). Geri alınamaz — sadece
-    /// bilinçli bir bakım/temizlik işlemi için kullanılmalı. Silinen kullanıcı sayısını döner.
-    /// </summary>
-    Task<int> DeleteAllUsersAsync(CancellationToken ct = default);
 }
 
 public record FirebaseTokenClaims(

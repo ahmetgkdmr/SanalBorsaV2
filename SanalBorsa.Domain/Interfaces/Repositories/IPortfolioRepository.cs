@@ -4,6 +4,12 @@ namespace SanalBorsa.Domain.Interfaces.Repositories;
 
 public interface IPortfolioRepository : IRepository<UserPortfolio>
 {
+    /// <summary>
+    /// Liderlik tablosu için TÜM portföyler; kullanıcı ve holdings dahil, tek sorguda.
+    /// Sıralama sunucuda hesaplandığı için kullanıcı başına ayrı sorgu (N+1) atılmaz.
+    /// </summary>
+    Task<IReadOnlyList<UserPortfolio>> GetAllWithUserAndHoldingsAsync(CancellationToken ct = default);
+
     /// <summary>Portföy + holdings (işlem geçmişi dahil değil).</summary>
     Task<UserPortfolio?> GetByUserIdAsync(Guid userId, CancellationToken ct = default);
 

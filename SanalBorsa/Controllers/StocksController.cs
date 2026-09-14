@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Common.Seeds;
@@ -73,6 +74,7 @@ public class StocksController : ControllerBase
 
     /// <summary>Recompute top gainers table (admin). sync=true: local'de güncel kodla senkron
     /// çalışır (bkz. corporate-actions/sync üstündeki not — aynı local-vs-production gerekçesi).</summary>
+    [AdminApiKey]
     [HttpPost("top-gainers/compute")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ComputeTopGainersResult), StatusCodes.Status200OK)]
@@ -140,6 +142,7 @@ public class StocksController : ControllerBase
     /// Bootstrap: seeds missing BIST symbols, then fetches price history / corporate actions
     /// for stocks that still need data. Runs in background.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("bootstrap")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult Bootstrap()
@@ -152,6 +155,7 @@ public class StocksController : ControllerBase
     /// BIST ham günlük fiyat sync (TradingView WebSocket, adjustment=none).
     /// full=true tüm geçmişi yeniden çeker. Arka planda çalışır.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("sync-prices")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncBistPrices(
@@ -176,6 +180,7 @@ public class StocksController : ControllerBase
     /// Mevcut satırlarda yalnızca AdjustedClose günceller (TV adjustment=dividends).
     /// Close / OHLCV değişmez. Arka planda çalışır.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("sync-adjusted-closes")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncAdjustedCloses(
@@ -195,6 +200,7 @@ public class StocksController : ControllerBase
     }
 
     /// <summary>Önceki tam seans gününün 15dk sparkline bar'larını yeniler (normalde 18:45 TR cron'u).</summary>
+    [AdminApiKey]
     [HttpPost("intraday-sparkline/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncIntradaySparkline()
@@ -206,6 +212,7 @@ public class StocksController : ControllerBase
     }
 
     /// <summary>Metadata sync (isim/sektör vb.) — fiyat çekmez.</summary>
+    [AdminApiKey]
     [HttpPost("sync")]
     [ProducesResponseType(typeof(SyncStocksResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> Sync(CancellationToken ct = default)
@@ -222,6 +229,7 @@ public class StocksController : ControllerBase
     /// sync=false ile kuyruğa atılan bir iş burada değil PRODUCTION'da (muhtemelen eski kodla) çalışır.
     /// Lokal makinede güncel kodla test/çalıştırmak için sync=true kullanılmalı.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("corporate-actions/sync")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> SyncCorporateActions(
@@ -265,6 +273,7 @@ public class StocksController : ControllerBase
     /// henüz işlenmemiş (olay, portföy) çiftlerini işler. sync=true: Hangfire'a atmadan senkron
     /// çalışır (lokal ortamda Hangfire worker kapalı olduğu için — bkz. yukarıdaki not).
     /// </summary>
+    [AdminApiKey]
     [HttpPost("corporate-actions/apply-to-portfolios")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ApplyCorporateActionsToPortfolios(
@@ -293,6 +302,7 @@ public class StocksController : ControllerBase
     /// Eksik BIST sembollerini ekler / yeniden aktif eder; Remove listesini soft-pasife çeker.
     /// Fiyat geçmişi silinmez. Market instruments (INDEX/FX) dokunulmaz.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("universe/sync")]
     [ProducesResponseType(typeof(SyncStockUniverseResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> SyncUniverse(
@@ -311,6 +321,7 @@ public class StocksController : ControllerBase
     /// dış kaynağa/Yahoo'ya ihtiyaç yok). Sorun bulunan hisseleri TradingView'den yeniden çeker,
     /// hâlâ sapıyorsa loglar (manuel inceleme). Yüzlerce hisse × tam geçmiş olduğu için uzun sürer.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("price-audit")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> PriceAudit(
@@ -343,6 +354,7 @@ public class StocksController : ControllerBase
     /// IndependentAdjustmentAuditService). %1'den fazla sapan gün varsa loglar. Dış kaynağa
     /// (Yahoo) hiç ihtiyaç yok — tamamen kendi verimizin iç tutarlılığı.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("independent-adjustment-audit")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> IndependentAdjustmentAudit(
@@ -510,6 +522,7 @@ public class StocksController : ControllerBase
     /// alfabetik sırayla TÜM hisseleri işliyor — proje sohbeti: BIST 100 gibi öncelikli bir alt kümeyi
     /// sıraya girmeden hemen doldurmak için bu endpoint'ten tek tek (script ile) çağrılıyor.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("{symbol}/corporate-actions/sync")]
     public async Task<IActionResult> SyncSingleStockCorporateActions(
         string symbol,
@@ -609,6 +622,7 @@ public class StocksController : ControllerBase
     /// KOPMAZ. Proje sohbeti: KOZAL şirketi KAP'ta artık "TRALT" (Türk Altın İşletmeleri A.Ş.) olarak
     /// kayıtlı — bu, sil-yeniden-oluştur yerine güvenli bir yeniden adlandırma için kullanılıyor.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("{oldSymbol}/rename")]
     public async Task<IActionResult> RenameSymbol(
         string oldSymbol,
@@ -645,6 +659,7 @@ public class StocksController : ControllerBase
     /// atlamalarını bulup kayıtlı büyük kurumsal olaylarımızla (BonusIssue/RightsIssue) eşleştirir
     /// — sınır günü TAHMİN EDİLMEZ, TV'nin kendi verisinden okunur (bkz. TvImpliedFactorAuditService).
     /// </summary>
+    [AdminApiKey]
     [HttpPost("tv-implied-factor-audit")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> TvImpliedFactorAudit(
@@ -669,6 +684,7 @@ public class StocksController : ControllerBase
         });
     }
 
+    [AdminApiKey]
     [HttpPost("deactivate-inactive")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult DeactivateInactive([FromQuery] int lookbackDays = 60)

@@ -2,9 +2,12 @@ using System.Security.Claims;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.Auth.Commands.CompleteRegistration;
 using SanalBorsa.Application.Auth.Commands.LoginWithFirebase;
 using SanalBorsa.Application.Auth.Commands.LoginWithPassword;
+using SanalBorsa.Application.Auth.Commands.Logout;
 using SanalBorsa.Application.Auth.Commands.RefreshToken;
 using SanalBorsa.Application.Auth.Commands.RegisterWithPassword;
 using SanalBorsa.Application.Auth.Commands.UpdatePrivacySettings;
@@ -16,6 +19,8 @@ namespace SanalBorsa.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
+// Parola deneme ve kullanıcı adı sorgulayarak hesap keşfine karşı IP başına sınır.
+[EnableRateLimiting(RateLimitPolicies.Auth)]
 public class AuthController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -107,6 +112,20 @@ public class AuthController : ControllerBase
         var userId = GetUserId();
         var result = await _mediator.Send(new GetMeQuery(userId), ct);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Çıkış — sunucudaki tüm yenileme token'larını iptal eder. İstemcinin localStorage'ı
+    /// temizlemesi tek başına yeterli değildi: token iptal edilmediği için elindeki kopya
+    /// süresi dolana kadar çalışmaya devam ediyordu.
+    /// </summary>
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await _mediator.Send(new LogoutCommand(GetUserId()), ct);
+        return NoContent();
     }
 
     /// <summary>Gizlilik ayarları — işlem geçmişinin herkese açık olup olmadığı.</summary>

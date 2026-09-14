@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Indices.Commands.BootstrapMarketIndices;
 using SanalBorsa.Application.Indices.Queries.GetIndexQuotes;
@@ -28,6 +29,7 @@ public class IndicesController : ControllerBase
     }
 
     /// <summary>Seeds and fetches historical data for market instruments (indices + USD/TRY).</summary>
+    [AdminApiKey]
     [HttpPost("bootstrap")]
     [ProducesResponseType(typeof(BootstrapMarketIndicesResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> Bootstrap(CancellationToken ct)

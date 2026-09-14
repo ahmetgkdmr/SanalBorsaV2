@@ -11,12 +11,14 @@ namespace SanalBorsa.Application.Portfolio.Commands.SellUsStock;
 public class SellUsStockCommandHandler : IRequestHandler<SellUsStockCommand, PortfolioDto>
 {
     private readonly IUnitOfWork _uow;
+    private readonly IClock _clock;
     private readonly IPortfolioFxRateProvider _fx;
 
-    public SellUsStockCommandHandler(IUnitOfWork uow, IPortfolioFxRateProvider fx)
+    public SellUsStockCommandHandler(IUnitOfWork uow, IPortfolioFxRateProvider fx, IClock clock)
     {
         _uow = uow;
         _fx = fx;
+        _clock = clock;
     }
 
     public Task<PortfolioDto> Handle(SellUsStockCommand request, CancellationToken cancellationToken)
@@ -24,10 +26,10 @@ public class SellUsStockCommandHandler : IRequestHandler<SellUsStockCommand, Por
 
     private async Task<PortfolioDto> ExecuteAsync(SellUsStockCommand request, CancellationToken cancellationToken)
     {
-        NyseTradingHours.EnsureOpen();
+        NyseTradingHours.EnsureOpen(_clock.UtcNow);
 
         if (request.Quantity <= 0)
-            throw new InvalidOperationException("Miktar 0'dan büyük olmalıdır.");
+            throw new BusinessRuleException("Miktar 0'dan büyük olmalıdır.");
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);
@@ -35,22 +37,22 @@ public class SellUsStockCommandHandler : IRequestHandler<SellUsStockCommand, Por
         var symbol = request.Symbol.ToUpperInvariant();
         var holding = portfolio.Holdings.FirstOrDefault(h =>
                 h.Symbol == symbol && h.MarketType == MarketType.UsStocks)
-            ?? throw new InvalidOperationException($"Portföyde {request.Symbol} bulunamadı.");
+            ?? throw new BusinessRuleException($"Portföyde {request.Symbol} bulunamadı.");
 
         if (holding.Quantity < request.Quantity)
-            throw new InvalidOperationException("Yeterli miktar yok.");
+            throw new BusinessRuleException("Yeterli miktar yok.");
 
         var stock = await _uow.Stocks.GetBySymbolAsync(symbol, cancellationToken, MarketType.UsStocks)
             ?? throw new NotFoundException("Stock", request.Symbol);
 
         if (stock.TradingHaltReason is not null)
-            throw new InvalidOperationException($"{stock.Symbol} hissesi için {stock.TradingHaltReason}");
+            throw new BusinessRuleException($"{stock.Symbol} hissesi için {stock.TradingHaltReason}");
 
         var snapshot = await _uow.PriceHistories.GetMarketSnapshotsAsync(
             [stock.Id], sparklineDays: 1, ct: cancellationToken);
 
         if (!snapshot.TryGetValue(stock.Id, out var snap) || snap.LastClose is null)
-            throw new InvalidOperationException($"{request.Symbol} için güncel fiyat bulunamadı.");
+            throw new BusinessRuleException($"{request.Symbol} için güncel fiyat bulunamadı.");
 
         var priceUsd = snap.LastClose.Value;
         var usdAmount = request.Quantity * priceUsd;

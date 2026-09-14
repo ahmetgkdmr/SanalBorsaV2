@@ -149,6 +149,7 @@ public static class DependencyInjection
         services.AddScoped<SanalBorsa.Application.Common.Services.IndependentAdjustmentAuditService>();
         services.AddScoped<SanalBorsa.Application.Common.Services.TvImpliedFactorAuditService>();
         services.AddScoped<PriceDataAuditJob>();
+        services.AddScoped<ExpiredRefreshTokenCleanupJob>();
         services.AddScoped<AdjustedCloseRetryJob>();
         services.AddScoped<IndependentAdjustmentAuditJob>();
         services.AddScoped<TvImpliedFactorAuditJob>();

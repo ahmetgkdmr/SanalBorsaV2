@@ -9,7 +9,9 @@ using SanalBorsa.Application.Portfolio.Commands.SellCrypto;
 using SanalBorsa.Application.Portfolio.Commands.SellStock;
 using SanalBorsa.Application.Portfolio.Commands.BuyUsStock;
 using SanalBorsa.Application.Portfolio.Commands.SellUsStock;
+using SanalBorsa.Application.Portfolio.Queries.GetLeaderboard;
 using SanalBorsa.Application.Portfolio.Queries.GetPortfolio;
+using SanalBorsa.Application.Portfolio.Queries.GetPublicTradeHistory;
 using SanalBorsa.Application.Portfolio.Queries.GetPortfolioTransactions;
 
 namespace SanalBorsa.API.Controllers;
@@ -28,6 +30,33 @@ public class PortfolioController : ControllerBase
     }
 
     /// <summary>Kullanıcının portföyünü döner (nakit + holdings; işlem geçmişi yok).</summary>
+    /// <summary>
+    /// Sanal portföyünü en çok büyüten kullanıcılar. Giriş gerektirmez — sayfa herkese açık.
+    /// Değerler canlı fiyatlarla sunucuda hesaplanır ve kısa süreli önbelleğe alınır.
+    /// </summary>
+    [HttpGet("/api/leaderboard")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(LeaderboardDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Leaderboard([FromQuery] int take = 50, CancellationToken ct = default)
+    {
+        var result = await _mediator.Send(new GetLeaderboardQuery(take), ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Liderlik tablosundaki bir kullanıcının herkese açık işlem geçmişi.
+    /// Kullanıcı paylaşımı kapattıysa <c>isPublic=false</c> ve boş liste döner.
+    /// </summary>
+    [HttpGet("/api/leaderboard/{username}/trades")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PublicTradeHistoryDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> PublicTrades(
+        string username, [FromQuery] int take = 50, CancellationToken ct = default)
+    {
+        var result = await _mediator.Send(new GetPublicTradeHistoryQuery(username, take), ct);
+        return Ok(result);
+    }
+
     [HttpGet]
     [ProducesResponseType(typeof(PortfolioDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(CancellationToken ct)

@@ -43,7 +43,11 @@ public class ExceptionHandlingMiddleware
             _logger.LogWarning(ex, "Unauthorized");
             await WriteErrorAsync(context, HttpStatusCode.Unauthorized, "Unauthorized", ex.Message);
         }
-        catch (InvalidOperationException ex)
+        // SADECE bizim fırlattığımız, kullanıcıya gösterilebilir kural ihlalleri 400 + mesaj olur.
+        // Daha önce burada InvalidOperationException yakalanıyordu; o tip .NET'in her yerinden
+        // (EF, LINQ, HttpClient) gelebildiği için iç hata metinleri de istemciye sızıyordu.
+        // Artık beklenmeyen InvalidOperationException aşağıdaki genel catch'e düşüp 500 döner.
+        catch (BusinessRuleException ex)
         {
             _logger.LogWarning(ex, "Business rule violation");
             await WriteErrorAsync(context, HttpStatusCode.BadRequest, "Bad Request", ex.Message);

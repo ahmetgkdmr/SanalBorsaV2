@@ -2,6 +2,7 @@ using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.Common.Interfaces;
 using SanalBorsa.Application.Crypto.Commands.BackfillCryptoPreBinanceHistory;
 using SanalBorsa.Application.Crypto.Commands.SyncCryptoHistory;
@@ -87,6 +88,7 @@ public class CryptoController : ControllerBase
     /// <summary>
     /// Binance USDT geçmiş fiyat sync (seed + klines). Background çalışır.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("sync-history")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult SyncHistory(
@@ -104,6 +106,7 @@ public class CryptoController : ControllerBase
     /// Kaynak sırası: Zorinaq(BTC) → Coinbase → Yahoo. Binance günleri ezilmez.
     /// TradingView public API olmadığı için TV scrape yok; Yahoo/Coinbase TV'deki USD serilerine denk.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("backfill-pre-binance")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public IActionResult BackfillPreBinance([FromQuery] string? symbol = null)

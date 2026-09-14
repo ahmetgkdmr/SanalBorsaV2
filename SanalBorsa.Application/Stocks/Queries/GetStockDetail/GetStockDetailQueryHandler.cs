@@ -1,8 +1,8 @@
-using AutoMapper;
 using MediatR;
 using SanalBorsa.Application.Common;
 using SanalBorsa.Application.Common.Exceptions;
 using SanalBorsa.Application.DTOs;
+using SanalBorsa.Application.Mappings;
 using SanalBorsa.Domain.Interfaces;
 
 namespace SanalBorsa.Application.Stocks.Queries.GetStockDetail;
@@ -10,12 +10,10 @@ namespace SanalBorsa.Application.Stocks.Queries.GetStockDetail;
 public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, StockDetailDto>
 {
     private readonly IUnitOfWork _uow;
-    private readonly IMapper _mapper;
 
-    public GetStockDetailQueryHandler(IUnitOfWork uow, IMapper mapper)
+    public GetStockDetailQueryHandler(IUnitOfWork uow)
     {
         _uow = uow;
-        _mapper = mapper;
     }
 
     public async Task<StockDetailDto> Handle(GetStockDetailQuery request, CancellationToken cancellationToken)
@@ -35,13 +33,13 @@ public class GetStockDetailQueryHandler : IRequestHandler<GetStockDetailQuery, S
         var earliestDataDate = EarliestDateClamp.Apply(stock.EarliestDataDate, usdTry?.EarliestDataDate);
 
         var priceDtos = recentPrices
-            .Select(_mapper.Map<PriceHistoryDto>)
+            .Select(x => x.ToDto())
             .ToList();
 
         var actionDtos = actions
             .Select(a =>
             {
-                var dto = _mapper.Map<CorporateActionDto>(a);
+                var dto = a.ToDto();
                 // Inject stock symbol since lazy loading is not used
                 return dto with { Symbol = stock.Symbol };
             })

@@ -101,7 +101,7 @@ public class LoginWithFirebaseCommandHandler
         await _uow.SaveChangesAsync(cancellationToken);
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(user.Id, cancellationToken);
-        var tokens = _jwt.Generate(user);
+        var tokens = await _jwt.GenerateAsync(user, cancellationToken);
 
         return new AuthExchangeResult(
             NeedsProfile: false,

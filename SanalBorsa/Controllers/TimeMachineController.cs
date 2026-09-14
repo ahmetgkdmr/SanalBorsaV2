@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using SanalBorsa.API.Security;
 using SanalBorsa.Application.DTOs;
 using SanalBorsa.Application.Indices.Commands.SyncParityHistory;
 using SanalBorsa.Application.Stocks.Commands.ComputeTimeMachineLeaders;
@@ -57,6 +58,7 @@ public class TimeMachineController : ControllerBase
     /// sync=true: bu isteği alan sürecin kendisinde, hemen ve senkron çalışır — local'de
     /// (Hangfire worker olmadan) yeni kodu production'a deploy etmeden test etmek için.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("leaders/compute")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ComputeTimeMachineLeadersResult), StatusCodes.Status200OK)]
@@ -87,6 +89,7 @@ public class TimeMachineController : ControllerBase
     /// <summary>
     /// USD/TRY, EUR/TRY ve gram altın fiyat geçmişini tazeler. full=true seriyi baştan çeker.
     /// </summary>
+    [AdminApiKey]
     [HttpPost("parity/sync")]
     [ProducesResponseType(typeof(SyncParityHistoryResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> SyncParity(

@@ -22,6 +22,8 @@ public interface IUnitOfWork : IDisposable
 
     INotificationRepository Notifications { get; }
 
+    IRefreshTokenRepository RefreshTokens { get; }
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 
     /// <summary>Detaches all tracked entities after a failed SaveChanges so the next stock can proceed.</summary>

@@ -36,7 +36,7 @@ public class SellCryptoCommandHandler
         SellCryptoCommand request, CancellationToken cancellationToken)
     {
         if (request.Quantity <= 0)
-            throw new InvalidOperationException("Miktar 0'dan büyük olmalıdır.");
+            throw new BusinessRuleException("Miktar 0'dan büyük olmalıdır.");
 
         var portfolio = await _uow.Portfolios.GetByUserIdAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("Portfolio", request.UserId);
@@ -46,13 +46,13 @@ public class SellCryptoCommandHandler
 
         var holding = portfolio.Holdings.FirstOrDefault(h =>
                 h.Symbol == symbol && h.MarketType == MarketType.Crypto)
-            ?? throw new InvalidOperationException($"Portföyde {symbol} bulunamadı.");
+            ?? throw new BusinessRuleException($"Portföyde {symbol} bulunamadı.");
 
         if (holding.Quantity < request.Quantity)
-            throw new InvalidOperationException("Yeterli miktar yok.");
+            throw new BusinessRuleException("Yeterli miktar yok.");
 
         if (!fill.FullyFilled || fill.FilledQuantity <= 0)
-            throw new InvalidOperationException(
+            throw new BusinessRuleException(
                 "Derinlik yetersiz — emir tamamen doldurulamadı. Daha küçük miktar deneyin.");
 
         holding.Quantity -= fill.FilledQuantity;

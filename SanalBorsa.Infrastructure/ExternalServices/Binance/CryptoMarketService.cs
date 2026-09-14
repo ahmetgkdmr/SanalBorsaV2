@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using SanalBorsa.Application.Common.Interfaces;
+using SanalBorsa.Application.Common.Exceptions;
 
 namespace SanalBorsa.Infrastructure.ExternalServices.Binance;
 
@@ -68,9 +69,9 @@ public sealed class CryptoMarketService : ICryptoMarketService
         string symbol, decimal? quoteUsd, decimal? quantity, CancellationToken ct = default)
     {
         if ((quoteUsd is null or <= 0) && (quantity is null or <= 0))
-            throw new InvalidOperationException("quoteUsd veya quantity gerekli.");
+            throw new BusinessRuleException("quoteUsd veya quantity gerekli.");
         if (quoteUsd is > 0 && quantity is > 0)
-            throw new InvalidOperationException("quoteUsd ve quantity aynı anda verilemez.");
+            throw new BusinessRuleException("quoteUsd ve quantity aynı anda verilemez.");
 
         var depth = await GetDepthAsync(symbol, ct);
         return MatchBuy(depth, quoteUsd, quantity);
@@ -80,7 +81,7 @@ public sealed class CryptoMarketService : ICryptoMarketService
         string symbol, decimal quantity, CancellationToken ct = default)
     {
         if (quantity <= 0)
-            throw new InvalidOperationException("quantity 0'dan büyük olmalıdır.");
+            throw new BusinessRuleException("quantity 0'dan büyük olmalıdır.");
 
         var depth = await GetDepthAsync(symbol, ct);
         return MatchSell(depth, quantity);
@@ -207,6 +208,6 @@ public sealed class CryptoMarketService : ICryptoMarketService
     private void EnsureAllowed(string symbol)
     {
         if (!_live.IsAllowed(symbol))
-            throw new InvalidOperationException($"{symbol} desteklenen kripto listesinde değil.");
+            throw new BusinessRuleException($"{symbol} desteklenen kripto listesinde değil.");
     }
 }

@@ -1,3 +1,5 @@
+using SanalBorsa.Application.Common.Exceptions;
+
 namespace SanalBorsa.Application.Common;
 
 /// <summary>
@@ -29,10 +31,10 @@ public static class BistTradingHours
         return t >= openFrom || t < openUntil;
     }
 
-    public static void EnsureOpen()
+    public static void EnsureOpen(DateTimeOffset? utcNow = null)
     {
-        if (!IsOpen())
-            throw new InvalidOperationException($"[{ClosedErrorCode}] {ClosedMessage}");
+        if (!IsOpen(utcNow))
+            throw new BusinessRuleException($"[{ClosedErrorCode}] {ClosedMessage}");
     }
 
     public static TimeZoneInfo ResolveTurkeyTimeZone()
